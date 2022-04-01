@@ -1,3 +1,4 @@
+mod backend;
 mod frontend;
 
 use frontend::FrontendError;
@@ -30,7 +31,8 @@ fn compile() -> Result<()> {
       .map_err(Error::FileError)?
       .generate_on(&ir)
       .map_err(Error::IOError),
-    Mode::Riscv => { unimplemented!() },
+    Mode::Riscv => backend::generate_asm(&ir, &output)
+      .map_err(Error::FileError),
     Mode::Perf => { unimplemented!() }
   }
 }

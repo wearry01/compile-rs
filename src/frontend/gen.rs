@@ -1,10 +1,5 @@
-/*
-  gen 
-  generate in-memory koopa ir program from ast
-*/
-
-use super::{FrontendError};
 use super::ast::*;
+use super::{FrontendError};
 use koopa::ir::builder_traits::*;
 use koopa::ir::{Program, FunctionData, Type};
 
