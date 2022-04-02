@@ -68,6 +68,6 @@ impl<'ast> ProgramGen<'ast> for Block {
 impl<'ast> ProgramGen<'ast> for Stmt {
   type Out = i32;
   fn generate(&'ast self, _program: &mut Program) -> Result<Self::Out> {
-    Ok(self.ret_value)
+    Ok(self.exp.eval().unwrap())
   }
 }

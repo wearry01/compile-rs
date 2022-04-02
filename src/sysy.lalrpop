@@ -22,9 +22,79 @@ FuncType: FuncType = "int" => FuncType::Int;
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
-Stmt: Stmt = "return" <ret_value: Number> ";" => Stmt { <> };
+Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
+
+Exp: Exp = <lorexp: LOrExp> => Exp::Exp(Box::new(lorexp));
+
+PrimaryExp: Exp = {
+  "(" <exp: Exp> ")" => Exp::Exp(Box::new(exp)),
+  <number: Number> => Exp::Number(number),
+}
 
 Number: i32 = <num: IntConst> => <>;
+
+UnaryExp: Exp = {
+  <primexp: PrimaryExp> => Exp::Exp(Box::new(primexp)),
+  "+" <unaryexp: UnaryExp> => Exp::Exp(Box::new(unaryexp)),
+  <unaryop: UnaryOp> <unaryexp: UnaryExp> => Exp::UnaryExp(
+    unaryop,
+    Box::new(unaryexp),
+  )
+}
+
+MulExp: Exp = {
+  <unaryexp: UnaryExp> => Exp::Exp(Box::new(unaryexp)),
+  <mulexp: MulExp> <mulop: MulOp> <unaryexp: UnaryExp> => Exp::BinaryExp(
+    Box::new(mulexp),
+    mulop,
+    Box::new(unaryexp),
+  )
+}
+
+AddExp: Exp = {
+  <mulexp: MulExp> => Exp::Exp(Box::new(mulexp)),
+  <addexp: AddExp> <addop: AddOp> <mulexp: MulExp> => Exp::BinaryExp(
+    Box::new(addexp),
+    addop,
+    Box::new(mulexp),
+  ),
+}
+
+RelExp: Exp = {
+  <addexp: AddExp> => Exp::Exp(Box::new(addexp)),
+  <relexp: RelExp> <relop: RelOp> <addexp: AddExp> => Exp::BinaryExp(
+    Box::new(relexp),
+    relop,
+    Box::new(addexp),
+  ),
+}
+
+EqExp: Exp = {
+  <relexp: RelExp> => Exp::Exp(Box::new(relexp)),
+  <eqexp: EqExp> <eqop: EqOp> <relexp: RelExp> => Exp::BinaryExp(
+    Box::new(eqexp),
+    eqop,
+    Box::new(relexp),
+  ),
+}
+
+LAndExp: Exp = {
+  <eqexp: EqExp> => Exp::Exp(Box::new(eqexp)), 
+  <landexp: LAndExp> "&&" <eqexp: EqExp> => Exp::BinaryExp(
+    Box::new(landexp),
+    BinaryOp::And,
+    Box::new(eqexp),
+  ),
+}
+
+LOrExp: Exp = {
+  <landexp: LAndExp> => Exp::Exp(Box::new(landexp)),
+  <lorexp: LOrExp> "||" <landexp: LAndExp> => Exp::BinaryExp(
+    Box::new(lorexp),
+    BinaryOp::Or,
+    Box::new(landexp),
+  ),
+}
 
 Ident: String = r"[_a-zA-Z][_a-zA-Z0-9]*" => <>.to_string();
 
@@ -32,4 +102,32 @@ IntConst: i32 = {
   r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
   r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
   r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
+}
+
+UnaryOp: UnaryOp = {
+  "-" => UnaryOp::Neg,
+  "!" => UnaryOp::Not,
+}
+
+MulOp: BinaryOp = {
+  "*" => BinaryOp::Mul,
+  "/" => BinaryOp::Div,
+  "%" => BinaryOp::Mod,
+}
+
+AddOp: BinaryOp = {
+  "+" => BinaryOp::Add,
+  "-" => BinaryOp::Sub,
+}
+
+RelOp: BinaryOp = {
+  "<" => BinaryOp::Lt,
+  "<=" => BinaryOp::Le,
+  ">" => BinaryOp::Gt,
+  ">=" => BinaryOp::Ge,
+}
+
+EqOp: BinaryOp = {
+  "==" => BinaryOp::Eq,
+  "!=" => BinaryOp::Neq,
 }

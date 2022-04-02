@@ -2,10 +2,12 @@
   frontend of the compiler:
   - ast: definition of ast nodes
   - gen: generation for koopa ir
+  - expr: evaluate expression
 */
 
 mod ast;
 mod gen;
+mod expr;
 
 use gen::ProgramGen;
 
