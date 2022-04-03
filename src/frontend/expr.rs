@@ -1,38 +1,52 @@
+use super::gen::{ProgramGen};
+use super::config::{Value, Config};
 use crate::frontend::ast::*;
 
 impl Exp {
-  pub fn eval(&self) -> Option<i32> {
+  pub fn eval<'ast>(&'ast self, config: &mut Config<'ast>) -> Option<i32> {
     match self {
       Self::Number(v) => Some(*v),
-      Self::Exp(exp) => exp.eval(),
+      Self::Exp(exp) => exp.eval(config),
+      Self::LVal(lval) => {
+        let v = lval.generate(config).ok();
+        if let Some(x) = &v {
+          match x {
+            Value::Const(c) => Some(*c),
+            _ => None,
+          }
+        } else {
+          None
+        }
+      }
       Self::UnaryExp(uop, exp) => {
         match uop {
-          UnaryOp::Neg => Some(-exp.eval()?),
-          UnaryOp::Not => Some((exp.eval()? == 0).into()),
+          UnaryOp::Neg => Some(-exp.eval(config)?),
+          UnaryOp::Not => Some((exp.eval(config)? == 0).into()),
         }
       },
       Self::BinaryExp(lhs, op, rhs) => {
         match op {
-          BinaryOp::Mul => Some(lhs.eval()? * rhs.eval()?),
-          BinaryOp::Div => (rhs.eval()).and_then(|rv| Some(lhs.eval()? / rv)),
-          BinaryOp::Mod => (rhs.eval()).and_then(|rv| Some(lhs.eval()? % rv)),
-          BinaryOp::Add => Some(lhs.eval()? + rhs.eval()?),
-          BinaryOp::Sub => Some(lhs.eval()? - rhs.eval()?),
-          BinaryOp::Lt => Some((lhs.eval()? < rhs.eval()?).into()),
-          BinaryOp::Gt => Some((lhs.eval()? > rhs.eval()?).into()),
-          BinaryOp::Le => Some((lhs.eval()? <= rhs.eval()?).into()),
-          BinaryOp::Ge => Some((lhs.eval()? >= rhs.eval()?).into()),
-          BinaryOp::Eq => Some((lhs.eval()? == rhs.eval()?).into()),
-          BinaryOp::Neq => Some((lhs.eval()? != rhs.eval()?).into()),
+          BinaryOp::Mul => Some(lhs.eval(config)? * rhs.eval(config)?),
+          BinaryOp::Div => (rhs.eval(config)).and_then(|rv| Some(lhs.eval(config)? / rv)),
+          BinaryOp::Mod => (rhs.eval(config)).and_then(|rv| Some(lhs.eval(config)? % rv)),
+          BinaryOp::Add => Some(lhs.eval(config)? + rhs.eval(config)?),
+          BinaryOp::Sub => Some(lhs.eval(config)? - rhs.eval(config)?),
+          BinaryOp::Lt => Some((lhs.eval(config)? < rhs.eval(config)?).into()),
+          BinaryOp::Gt => Some((lhs.eval(config)? > rhs.eval(config)?).into()),
+          BinaryOp::Le => Some((lhs.eval(config)? <= rhs.eval(config)?).into()),
+          BinaryOp::Ge => Some((lhs.eval(config)? >= rhs.eval(config)?).into()),
+          BinaryOp::Eq => Some((lhs.eval(config)? == rhs.eval(config)?).into()),
+          BinaryOp::Neq => Some((lhs.eval(config)? != rhs.eval(config)?).into()),
           // short circuit
-          BinaryOp::And => (lhs.eval()).and_then(|lv| 
-            if lv == 0 { Some(0) } else { Some((rhs.eval()? != 0).into()) }
+          BinaryOp::And => (lhs.eval(config)).and_then(|lv| 
+            if lv == 0 { Some(0) } else { Some((rhs.eval(config)? != 0).into()) }
           ),
-          BinaryOp::Or => (lhs.eval()).and_then(|lv|
-            if lv != 0 { Some(1) } else { Some((rhs.eval()? != 0).into()) }
+          BinaryOp::Or => (lhs.eval(config)).and_then(|lv|
+            if lv != 0 { Some(1) } else { Some((rhs.eval(config)? != 0).into()) }
           ),
         }
-      }
+      },
+      // _ => None,
     }
   }
 }

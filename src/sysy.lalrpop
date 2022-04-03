@@ -18,16 +18,63 @@ FuncDef: FuncDef = {
   }
 }
 
+Decl: Decl = {
+  <constdecl: ConstDecl> => Decl::ConstDecl(constdecl),
+  <vardecl: VarDecl> => Decl::VarDecl(vardecl),
+}
+
+ConstDecl: ConstDecl = {
+  "const" "int" <def0: ConstDef> <mut constdef: ("," <ConstDef>)*> ";" => { 
+    constdef.insert(0, def0);
+    ConstDecl { item: constdef }
+  }
+}
+
+ConstDef: ConstDef = <ident: Ident> "=" <initial: ConstInitVal> => ConstDef { <> };
+
+ConstInitVal: ConstInitVal = <exp: ConstExp> => ConstInitVal::Exp(exp);
+
+VarDecl: VarDecl = {
+  "int" <def0: VarDef> <mut vardef: ("," <VarDef>)*> ";" => {
+    vardef.insert(0, def0);
+    VarDecl { item: vardef }
+  }
+}
+
+VarDef: VarDef = {
+  <ident: Ident> => VarDef {
+    <>,
+    initial: None,
+  },
+  <ident: Ident> "=" <initial: InitVal> => VarDef { 
+    ident: ident,
+    initial: Some(initial),
+  },
+}
+
+InitVal: InitVal = <exp: Exp> => InitVal::Exp(exp);
+
 FuncType: FuncType = "int" => FuncType::Int;
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+Block: Block = "{" <item: BlockItem*> "}" => Block { <> };
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
+BlockItem: BlockItem = {
+  <decl: Decl> => BlockItem::Decl(decl),
+  <stmt: Stmt> => BlockItem::Stmt(stmt),
+}
+
+Stmt: Stmt = {
+  "return" <exp: Exp> ";" => Stmt::Return(exp),
+  <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(Assign { <> }),
+}
 
 Exp: Exp = <lorexp: LOrExp> => Exp::Exp(Box::new(lorexp));
 
+LVal: LVal = <ident: Ident> => LVal { <> };
+
 PrimaryExp: Exp = {
   "(" <exp: Exp> ")" => Exp::Exp(Box::new(exp)),
+  <lval: LVal> => Exp::LVal(lval),
   <number: Number> => Exp::Number(number),
 }
 
@@ -95,6 +142,8 @@ LOrExp: Exp = {
     Box::new(landexp),
   ),
 }
+
+ConstExp: ConstExp = <exp: Exp> => ConstExp { <> };
 
 Ident: String = r"[_a-zA-Z][_a-zA-Z0-9]*" => <>.to_string();
 
