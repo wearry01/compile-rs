@@ -104,7 +104,7 @@ impl<'ast> ProgramGen<'ast> for ConstInitVal {
   type Out = i32;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
     match self {
-      Self::Exp(exp) => exp.generate(config),
+      Self::Exp(constexp) => constexp.generate(config),
     }
   }
 }
@@ -148,13 +148,29 @@ impl<'ast> ProgramGen<'ast> for Stmt {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
     match self {
+      Self::Assign(assign) => assign.generate(config)?,
+      Self::ExpStmt(expstmt) => expstmt.generate(config)?,
+      Self::Block(block) => {
+        config.scope_in();
+        block.generate(config)?;
+        config.scope_out();
+      },
       Self::Return(exp) => {
         let value = exp.generate(config)?;
         let ret_val = config.ret_val().unwrap();
         let instr = config.new_value_builder().store(value, ret_val);
         config.insert_instr(instr);
       },
-      Self::Assign(assign) => assign.generate(config)?,
+    }
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for ExpStmt {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    if let Some(e) = &self.exp {
+      e.generate(config)?;
     }
     Ok(())
   }

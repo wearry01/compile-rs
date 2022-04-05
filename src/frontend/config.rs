@@ -1,3 +1,13 @@
+/*
+TODO
+
+- Fix multi return bug, implement basic blocks
+- seperate values of
+  - int type
+  - ptr type 
+  in process of generation
+*/
+
 use super::gen::Result;
 use super::FrontendError;
 
@@ -5,6 +15,8 @@ use std::collections::HashMap;
 use koopa::ir::builder_traits::*;
 use koopa::ir::builder::{LocalBuilder};
 use koopa::ir::{
+  dfg::DataFlowGraph,
+  layout::{Layout, InstList, BasicBlockList},
   Type,
   Program,
   BasicBlock, 
@@ -20,6 +32,7 @@ pub enum Value {
 }
 
 // information about (current) function
+#[derive(Clone, Copy)]
 pub struct Function {
   ident: IrFunction,
   entry: BasicBlock,
@@ -42,8 +55,36 @@ impl<'p> Config<'p> {
     }
   }
 
+  fn is_global(&self) -> bool {
+    self.function.is_none()
+  }
+
+  fn dfg_mut(&mut self) -> &mut DataFlowGraph {
+    let func = self.function.unwrap();
+    self.program.func_mut(func.ident).dfg_mut()
+  }
+
+  fn layout_mut(&mut self) -> &mut Layout {
+    let func = self.function.unwrap();
+    self.program.func_mut(func.ident).layout_mut()
+  }
+
+  fn bbs_mut(&mut self) -> &mut BasicBlockList {
+    self.layout_mut().bbs_mut()
+  }
+
+  fn insts_mut(&mut self) -> &mut InstList {
+    let func = self.function.unwrap();
+    self.layout_mut().bb_mut(func.entry).insts_mut()
+  }
+
+  // generate builder for current function
+  pub fn new_value_builder<'c>(&'c mut self) -> LocalBuilder<'c> {
+    self.dfg_mut().new_value()
+  }
+
   pub fn ret_val(&self) -> Option<IrValue> {
-    return self.function.as_ref().unwrap().ret_val.clone();
+    return self.function.unwrap().ret_val.clone();
   }
 
   // function begin
@@ -92,40 +133,35 @@ impl<'p> Config<'p> {
 
   // retrieve an value by ident 
   pub fn get_value(&self, id: &str) -> Option<Value> {
-    if let Some(v) = self.vardef[0].get(id) {
-      Some(v.clone())
-    } else {
-      None
+    let mut index = (self.vardef.len() - 1) as i32;
+    while index >= 0 {
+      if let Some(v) = self.vardef[index as usize].get(id) {
+        return Some(v.clone());
+      }
+      index -= 1;
     }
+    None
   }
 
-  // generate builder for current function
-  pub fn new_value_builder<'c>(&'c mut self) -> LocalBuilder<'c> {
-    if let Some(f) = &self.function {
-      let value = self.program.func_mut(f.ident).dfg_mut().new_value();
-      value
-    } else {
-      unreachable!()
-    }
+  // enter in a new scope
+  pub fn scope_in(&mut self) {
+    self.vardef.push(HashMap::new());
   }
 
-  /*
+  // leave out current scope
+  pub fn scope_out(&mut self) {
+    self.vardef.pop();
+  }
+
   // create a new basic block in current function
   pub fn new_bb(&mut self, name: String) -> BasicBlock {
-    if let Some(f) = &self.function {
-      let bb = self.program.func_mut(f.ident).dfg_mut().new_bb().basic_block(Some(name));
-      self.program.func_mut(f.ident).layout_mut().bbs_mut().push_key_back(bb).unwrap();
-      bb
-    } else {
-      unreachable!()
-    }
+    let bb = self.dfg_mut().new_bb().basic_block(Some(name));
+    self.bbs_mut().push_key_back(bb).unwrap();
+    bb
   }
-  */
 
   // insert instruction to current basic block
   pub fn insert_instr(&mut self, instr: IrValue) {
-    if let Some(f) = &self.function {
-      self.program.func_mut(f.ident).layout_mut().bb_mut(f.entry).insts_mut().push_key_back(instr).unwrap();
-    }
+    self.insts_mut().push_key_back(instr).unwrap();
   }
 }

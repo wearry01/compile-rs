@@ -53,8 +53,14 @@ pub enum BlockItem {
 }
 
 pub enum Stmt {
-  Return(Exp),
   Assign(Assign),
+  ExpStmt(ExpStmt),
+  Block(Block),
+  Return(Exp),
+}
+
+pub struct ExpStmt {
+  pub exp: Option<Exp>,
 }
 
 pub enum Exp {
