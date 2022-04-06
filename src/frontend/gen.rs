@@ -155,12 +155,32 @@ impl<'ast> ProgramGen<'ast> for Stmt {
         block.generate(config)?;
         config.scope_out();
       },
+      Self::If(if_stmt) => if_stmt.generate(config)?,
       Self::Return(exp) => {
         let value = exp.generate(config)?;
         let ret_val = config.ret_val().unwrap();
-        let instr = config.new_value_builder().store(value, ret_val);
-        config.insert_instr(instr);
+        let store = config.new_value_builder().store(value, ret_val);
+        config.insert_instr(store);
+        let end = config.end();
+        let jump = config.new_value_builder().jump(end);
+        config.insert_instr(jump);
+        let new = config.new_bb("%new".into());
+        config.set_bb(new);
       },
+    }
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for Assign {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let lval = self.lval.generate(config)?;
+    let exp = self.exp.generate(config)?;
+
+    if let Value::Value(irvalue) = &lval {
+      let store = config.new_value_builder().store(exp, *irvalue);
+      config.insert_instr(store);
     }
     Ok(())
   }
@@ -172,6 +192,38 @@ impl<'ast> ProgramGen<'ast> for ExpStmt {
     if let Some(e) = &self.exp {
       e.generate(config)?;
     }
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for If {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let cond = self.cond.generate(config)?;
+    let then_block = config.new_bb("%then".into());
+    let end_if = config.new_bb("%endif".into());
+
+    if let Some(else_stmt) = &self.else_stmt {
+      let else_block = config.new_bb("%else".into());
+      let branch = config.new_value_builder().branch(cond, then_block, else_block);
+      config.insert_instr(branch);
+
+      config.set_bb(else_block);
+      else_stmt.generate(config)?;
+      let jump = config.new_value_builder().jump(end_if);
+      config.insert_instr(jump);
+    } else {
+      let branch = config.new_value_builder().branch(cond, then_block, end_if);
+      config.insert_instr(branch);
+    }
+
+    config.set_bb(then_block);
+    self.then_stmt.generate(config)?;
+    let jump = config.new_value_builder().jump(end_if);
+    config.insert_instr(jump);
+
+    config.set_bb(end_if);
+
     Ok(())
   }
 }
@@ -189,18 +241,14 @@ impl<'ast> ProgramGen<'ast> for Exp {
       Self::LVal(lval) => {
         let value = lval.generate(config)?;
         match &value {
+          Value::Const(v) => Ok(config.new_value_builder().integer(*v)),
           Value::Value(v) => {
             let load = config.new_value_builder().load(*v);
             config.insert_instr(load);
             Ok(load)
           },
-          Value::Const(v) => {
-            let cst = config.new_value_builder().integer(*v);
-            Ok(cst)
-          }
         }
       },
-      Self::Exp(exp) => exp.generate(config),
       Self::UnaryExp(uop, exp) => {
         let value = exp.generate(config)?;
         let zero = config.new_value_builder().integer(0);
@@ -216,9 +264,9 @@ impl<'ast> ProgramGen<'ast> for Exp {
         let lval = lhs.generate(config)?;
         let rval = rhs.generate(config)?;
         let op = op.generate(config)?;
-        let instr = config.new_value_builder().binary(op, lval, rval);
-        config.insert_instr(instr);
-        Ok(instr)
+        let binary = config.new_value_builder().binary(op, lval, rval);
+        config.insert_instr(binary);
+        Ok(binary)
       }
     }
   }
@@ -228,21 +276,6 @@ impl<'ast> ProgramGen<'ast> for ConstExp {
   type Out = i32;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
     self.exp.eval(config).ok_or(FrontendError::EvalConstExpFail)
-  }
-}
-
-impl<'ast> ProgramGen<'ast> for Assign {
-  type Out = ();
-  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let lval = self.lval.generate(config)?;
-    let exp = self.exp.generate(config)?;
-
-    if let Value::Value(irvalue) = &lval {
-      let instr = config.new_value_builder().store(exp, *irvalue);
-      config.insert_instr(instr);
-    }
-
-    Ok(())
   }
 }
 

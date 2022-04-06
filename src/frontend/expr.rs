@@ -6,7 +6,6 @@ impl Exp {
   pub fn eval<'ast>(&'ast self, config: &mut Config<'ast>) -> Option<i32> {
     match self {
       Self::Number(v) => Some(*v),
-      Self::Exp(exp) => exp.eval(config),
       Self::LVal(lval) => {
         let v = lval.generate(config).ok();
         if let Some(x) = &v {

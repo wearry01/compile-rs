@@ -25,7 +25,7 @@ use koopa::ir::{
   Function as IrFunction, 
 };
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum Value {
   Const(i32),
   Value(IrValue),
@@ -36,6 +36,8 @@ pub enum Value {
 pub struct Function {
   ident: IrFunction,
   entry: BasicBlock,
+  current: BasicBlock,
+  end: BasicBlock,
   ret_val: Option<IrValue>,
 }
 
@@ -75,7 +77,7 @@ impl<'p> Config<'p> {
 
   fn insts_mut(&mut self) -> &mut InstList {
     let func = self.function.unwrap();
-    self.layout_mut().bb_mut(func.entry).insts_mut()
+    self.layout_mut().bb_mut(func.current).insts_mut()
   }
 
   // generate builder for current function
@@ -83,8 +85,12 @@ impl<'p> Config<'p> {
     self.dfg_mut().new_value()
   }
 
+  pub fn end(&self) -> BasicBlock {
+    self.function.unwrap().end
+  }
+
   pub fn ret_val(&self) -> Option<IrValue> {
-    return self.function.unwrap().ret_val.clone();
+    self.function.unwrap().ret_val
   }
 
   // function begin
@@ -96,7 +102,9 @@ impl<'p> Config<'p> {
   ) {
     let mut func_data = FunctionData::new(name, params, ret_ty.clone());
     let entry = func_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
+    let end = func_data.dfg_mut().new_bb().basic_block(Some("%end".into()));
     func_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
+    func_data.layout_mut().bbs_mut().push_key_back(end).unwrap();
     let ret_val = {
       if ret_ty == Type::get_i32() {
         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
@@ -108,16 +116,32 @@ impl<'p> Config<'p> {
       }
     };
     let ident = self.program.new_func(func_data);
-    self.function = Some(Function { ident, entry, ret_val });
+    self.function = Some(Function { ident, entry, current: entry, end, ret_val });
   }
 
   // return before leave
   pub fn leave_func(&mut self) {
-    let ret_val = self.ret_val();
-    let ret_val = self.new_value_builder().load(ret_val.unwrap());
+    // jump to end
+    let func = self.function.unwrap();
+    let instr = self.new_value_builder().jump(func.end);
+    self.insert_instr(instr);
+    self.set_bb(func.end);
+
+    // generate ret instr
+    let ret_val = self.new_value_builder().load(func.ret_val.unwrap());
     self.insert_instr(ret_val);
     let instr = self.new_value_builder().ret(Some(ret_val));
     self.insert_instr(instr);
+  }
+
+  // enter in a new scope
+  pub fn scope_in(&mut self) {
+    self.vardef.push(HashMap::new());
+  }
+
+  // leave out current scope
+  pub fn scope_out(&mut self) {
+    self.vardef.pop();
   }
 
   // insert new value definition into symbol table
@@ -143,21 +167,16 @@ impl<'p> Config<'p> {
     None
   }
 
-  // enter in a new scope
-  pub fn scope_in(&mut self) {
-    self.vardef.push(HashMap::new());
-  }
-
-  // leave out current scope
-  pub fn scope_out(&mut self) {
-    self.vardef.pop();
-  }
-
   // create a new basic block in current function
   pub fn new_bb(&mut self, name: String) -> BasicBlock {
     let bb = self.dfg_mut().new_bb().basic_block(Some(name));
     self.bbs_mut().push_key_back(bb).unwrap();
     bb
+  }
+
+  // set current basic block
+  pub fn set_bb(&mut self, bb: BasicBlock) {
+    self.function.as_mut().unwrap().current = bb;
   }
 
   // insert instruction to current basic block

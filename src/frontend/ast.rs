@@ -56,27 +56,33 @@ pub enum Stmt {
   Assign(Assign),
   ExpStmt(ExpStmt),
   Block(Block),
+  If(Box<If>),
   Return(Exp),
+}
+
+pub struct Assign {
+  pub lval: LVal,
+  pub exp: Exp,
 }
 
 pub struct ExpStmt {
   pub exp: Option<Exp>,
 }
 
+pub struct If {
+  pub cond: Exp,
+  pub then_stmt: Stmt,
+  pub else_stmt: Option<Stmt>,
+}
+
 pub enum Exp {
   Number(i32),
   LVal(LVal),
-  Exp(Box<Exp>),
   UnaryExp(UnaryOp, Box<Exp>),
   BinaryExp(Box<Exp>, BinaryOp, Box<Exp>),
 }
 
 pub struct ConstExp {
-  pub exp: Exp,
-}
-
-pub struct Assign {
-  pub lval: LVal,
   pub exp: Exp,
 }
 

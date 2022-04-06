@@ -19,8 +19,8 @@ FuncDef: FuncDef = {
 }
 
 Decl: Decl = {
-  <constdecl: ConstDecl> => Decl::ConstDecl(constdecl),
-  <vardecl: VarDecl> => Decl::VarDecl(vardecl),
+  ConstDecl => Decl::ConstDecl(<>),
+  VarDecl => Decl::VarDecl(<>),
 }
 
 ConstDecl: ConstDecl = {
@@ -64,18 +64,35 @@ BlockItem: BlockItem = {
 }
 
 Stmt: Stmt = {
+  MStmt => <>,
+  OStmt => <>,
+}
+
+MStmt: Stmt = {
   <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(Assign { <> }),
   <exp: Exp?> ";" => Stmt::ExpStmt(ExpStmt { <> }),
   <block: Block> => Stmt::Block(block),
+  "if" "(" <cond: Exp> ")" <then_stmt: MStmt> "else" <else_stmt: MStmt> => {
+    Stmt::If(Box::new(If { cond, then_stmt, else_stmt: Some(else_stmt) }))
+  },
   "return" <exp: Exp> ";" => Stmt::Return(exp),
 }
 
-Exp: Exp = <lorexp: LOrExp> => Exp::Exp(Box::new(lorexp));
+OStmt: Stmt = {
+  "if" "(" <cond: Exp> ")" <then_stmt: Stmt> => {
+    Stmt::If(Box::new(If { cond, then_stmt, else_stmt: None }))
+  },
+  "if" "(" <cond: Exp> ")" <then_stmt: MStmt> "else" <else_stmt: OStmt> => {
+    Stmt::If(Box::new(If { cond, then_stmt, else_stmt: Some(else_stmt) }))
+  },
+}
+
+Exp: Exp = LOrExp => <>; 
 
 LVal: LVal = <ident: Ident> => LVal { <> };
 
 PrimaryExp: Exp = {
-  "(" <exp: Exp> ")" => Exp::Exp(Box::new(exp)),
+  "(" <Exp> ")" => <>, 
   <lval: LVal> => Exp::LVal(lval),
   <number: Number> => Exp::Number(number),
 }
@@ -83,8 +100,8 @@ PrimaryExp: Exp = {
 Number: i32 = <num: IntConst> => <>;
 
 UnaryExp: Exp = {
-  <primexp: PrimaryExp> => Exp::Exp(Box::new(primexp)),
-  "+" <unaryexp: UnaryExp> => Exp::Exp(Box::new(unaryexp)),
+  PrimaryExp => <>,
+  "+" <UnaryExp> => <>,
   <unaryop: UnaryOp> <unaryexp: UnaryExp> => Exp::UnaryExp(
     unaryop,
     Box::new(unaryexp),
@@ -92,7 +109,7 @@ UnaryExp: Exp = {
 }
 
 MulExp: Exp = {
-  <unaryexp: UnaryExp> => Exp::Exp(Box::new(unaryexp)),
+  UnaryExp => <>,
   <mulexp: MulExp> <mulop: MulOp> <unaryexp: UnaryExp> => Exp::BinaryExp(
     Box::new(mulexp),
     mulop,
@@ -101,7 +118,7 @@ MulExp: Exp = {
 }
 
 AddExp: Exp = {
-  <mulexp: MulExp> => Exp::Exp(Box::new(mulexp)),
+  MulExp => <>,
   <addexp: AddExp> <addop: AddOp> <mulexp: MulExp> => Exp::BinaryExp(
     Box::new(addexp),
     addop,
@@ -110,7 +127,7 @@ AddExp: Exp = {
 }
 
 RelExp: Exp = {
-  <addexp: AddExp> => Exp::Exp(Box::new(addexp)),
+  AddExp => <>,
   <relexp: RelExp> <relop: RelOp> <addexp: AddExp> => Exp::BinaryExp(
     Box::new(relexp),
     relop,
@@ -119,7 +136,7 @@ RelExp: Exp = {
 }
 
 EqExp: Exp = {
-  <relexp: RelExp> => Exp::Exp(Box::new(relexp)),
+  RelExp => <>,
   <eqexp: EqExp> <eqop: EqOp> <relexp: RelExp> => Exp::BinaryExp(
     Box::new(eqexp),
     eqop,
@@ -128,7 +145,7 @@ EqExp: Exp = {
 }
 
 LAndExp: Exp = {
-  <eqexp: EqExp> => Exp::Exp(Box::new(eqexp)), 
+  EqExp => <>,
   <landexp: LAndExp> "&&" <eqexp: EqExp> => Exp::BinaryExp(
     Box::new(landexp),
     BinaryOp::And,
@@ -137,7 +154,7 @@ LAndExp: Exp = {
 }
 
 LOrExp: Exp = {
-  <landexp: LAndExp> => Exp::Exp(Box::new(landexp)),
+  LAndExp => <>,
   <lorexp: LOrExp> "||" <landexp: LAndExp> => Exp::BinaryExp(
     Box::new(lorexp),
     BinaryOp::Or,
