@@ -164,8 +164,8 @@ impl<'ast> ProgramGen<'ast> for Stmt {
         let end = config.end();
         let jump = config.new_value_builder().jump(end);
         config.insert_instr(jump);
-        let new = config.new_bb("%new".into());
-        config.set_bb(new);
+        let skipped = config.new_bb("%skipped".into());
+        config.set_bb(skipped);
       },
     }
     Ok(())
@@ -261,12 +261,70 @@ impl<'ast> ProgramGen<'ast> for Exp {
       },
       // FIXME: short circuit logic operator
       Self::BinaryExp(lhs, op, rhs) => {
-        let lval = lhs.generate(config)?;
-        let rval = rhs.generate(config)?;
-        let op = op.generate(config)?;
-        let binary = config.new_value_builder().binary(op, lval, rval);
-        config.insert_instr(binary);
-        Ok(binary)
+        match op {
+          BinaryOp::And => {
+            let result = config.new_value_builder().alloc(Type::get_i32());
+            config.insert_instr(result);
+            {
+              let zero = config.new_value_builder().integer(0);
+              let store = config.new_value_builder().store(zero, result);
+              config.insert_instr(store);
+            }
+            let lval = lhs.generate(config)?;
+            let reval = config.new_bb("%reval".into());
+            let short_path = config.new_bb("%short_path".into());
+            let branch = config.new_value_builder().branch(lval, reval, short_path);
+            config.insert_instr(branch);
+
+            config.set_bb(reval);
+            let rval = rhs.generate(config)?;
+            let store = config.new_value_builder().store(rval, result);
+            config.insert_instr(store);
+
+            let jump = config.new_value_builder().jump(short_path);
+            config.insert_instr(jump);
+
+            config.set_bb(short_path);
+            let load = config.new_value_builder().load(result);
+            config.insert_instr(load);
+            Ok(load)
+          },
+          BinaryOp::Or => {
+            let result = config.new_value_builder().alloc(Type::get_i32());
+            config.insert_instr(result);
+            {
+              let one = config.new_value_builder().integer(1);
+              let store = config.new_value_builder().store(one, result);
+              config.insert_instr(store);
+            }
+            let lval = lhs.generate(config)?;
+            let reval = config.new_bb("%reval".into());
+            let short_path = config.new_bb("%short_path".into());
+            let branch = config.new_value_builder().branch(lval, short_path, reval);
+            config.insert_instr(branch);
+
+            config.set_bb(reval);
+            let rval = rhs.generate(config)?;
+            let store = config.new_value_builder().store(rval, result);
+            config.insert_instr(store);
+
+            let jump = config.new_value_builder().jump(short_path);
+            config.insert_instr(jump);
+
+            config.set_bb(short_path);
+            let load = config.new_value_builder().load(result);
+            config.insert_instr(load);
+            Ok(load)
+          },
+          other => {
+            let lval = lhs.generate(config)?;
+            let rval = rhs.generate(config)?;
+            let bop = other.generate(config)?;
+            let binary = config.new_value_builder().binary(bop, lval, rval);
+            config.insert_instr(binary);
+            Ok(binary)
+          }
+        }
       }
     }
   }

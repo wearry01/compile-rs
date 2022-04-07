@@ -57,9 +57,11 @@ impl<'p> Config<'p> {
     }
   }
 
+  /*
   fn is_global(&self) -> bool {
     self.function.is_none()
   }
+  */
 
   fn dfg_mut(&mut self) -> &mut DataFlowGraph {
     let func = self.function.unwrap();
