@@ -75,6 +75,11 @@ MStmt: Stmt = {
   "if" "(" <cond: Exp> ")" <then_stmt: MStmt> "else" <else_stmt: MStmt> => {
     Stmt::If(Box::new(If { cond, then_stmt, else_stmt: Some(else_stmt) }))
   },
+  "while" "(" <cond: Exp> ")" <stmt: MStmt> => {
+    Stmt::While(Box::new(While { <> }))
+  },
+  "break" ";" => Stmt::Break(Break {}),
+  "continue" ";" => Stmt::Continue(Continue {}),
   "return" <exp: Exp> ";" => Stmt::Return(exp),
 }
 
@@ -84,6 +89,9 @@ OStmt: Stmt = {
   },
   "if" "(" <cond: Exp> ")" <then_stmt: MStmt> "else" <else_stmt: OStmt> => {
     Stmt::If(Box::new(If { cond, then_stmt, else_stmt: Some(else_stmt) }))
+  },
+  "while" "(" <cond: Exp> ")" <stmt: OStmt> => {
+    Stmt::While(Box::new(While { <> }))
   },
 }
 

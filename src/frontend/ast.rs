@@ -57,6 +57,9 @@ pub enum Stmt {
   ExpStmt(ExpStmt),
   Block(Block),
   If(Box<If>),
+  While(Box<While>),
+  Break(Break),
+  Continue(Continue),
   Return(Exp),
 }
 
@@ -74,6 +77,15 @@ pub struct If {
   pub then_stmt: Stmt,
   pub else_stmt: Option<Stmt>,
 }
+
+pub struct While {
+  pub cond: Exp,
+  pub stmt: Stmt,
+}
+
+pub struct Break;
+
+pub struct Continue;
 
 pub enum Exp {
   Number(i32),

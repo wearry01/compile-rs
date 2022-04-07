@@ -35,7 +35,7 @@ pub enum Value {
 #[derive(Clone, Copy)]
 pub struct Function {
   ident: IrFunction,
-  entry: BasicBlock,
+  // entry: BasicBlock,
   current: BasicBlock,
   end: BasicBlock,
   ret_val: Option<IrValue>,
@@ -44,7 +44,8 @@ pub struct Function {
 pub struct Config<'p> {
   program: &'p mut Program,
   pub function: Option<Function>, // None for global config
-  pub vardef: Vec<HashMap<&'p str, Value>>, // now a symbol table, TODO: implement scope
+  pub vardef: Vec<HashMap<&'p str, Value>>, // symbol table for scope
+  pub while_block: Vec<(BasicBlock, BasicBlock)>, // basic block chains for (while_entry, while_end)
 }
 
 impl<'p> Config<'p> {
@@ -54,6 +55,7 @@ impl<'p> Config<'p> {
       program: program,
       function: None,
       vardef: vec![HashMap::new()],
+      while_block: vec![],
     }
   }
 
@@ -118,22 +120,22 @@ impl<'p> Config<'p> {
       }
     };
     let ident = self.program.new_func(func_data);
-    self.function = Some(Function { ident, entry, current: entry, end, ret_val });
+    self.function = Some(Function { ident, current: entry, end, ret_val });
   }
 
   // return before leave
   pub fn leave_func(&mut self) {
     // jump to end
     let func = self.function.unwrap();
-    let instr = self.new_value_builder().jump(func.end);
-    self.insert_instr(instr);
-    self.set_bb(func.end);
+    let jump = self.new_value_builder().jump(func.end);
+    self.insert_instr(jump);
 
     // generate ret instr
-    let ret_val = self.new_value_builder().load(func.ret_val.unwrap());
-    self.insert_instr(ret_val);
-    let instr = self.new_value_builder().ret(Some(ret_val));
-    self.insert_instr(instr);
+    let load = self.new_value_builder().load(func.ret_val.unwrap());
+    self.set_bb(func.end);
+    self.insert_instr(load);
+    let ret = self.new_value_builder().ret(Some(load));
+    self.insert_instr(ret);
   }
 
   // enter in a new scope
@@ -167,6 +169,22 @@ impl<'p> Config<'p> {
       index -= 1;
     }
     None
+  }
+
+  pub fn while_in(&mut self, bb_entry: BasicBlock, bb_end: BasicBlock) {
+    self.while_block.push((bb_entry, bb_end));
+  }
+
+  pub fn while_out(&mut self) {
+    self.while_block.pop();
+  }
+
+  pub fn break_bb(&mut self) -> BasicBlock {
+    self.while_block.last().unwrap().1
+  }
+
+  pub fn continue_bb(&mut self) -> BasicBlock {
+    self.while_block.last().unwrap().0
   }
 
   // create a new basic block in current function

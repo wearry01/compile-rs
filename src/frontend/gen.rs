@@ -156,6 +156,9 @@ impl<'ast> ProgramGen<'ast> for Stmt {
         config.scope_out();
       },
       Self::If(if_stmt) => if_stmt.generate(config)?,
+      Self::While(while_stmt) => while_stmt.generate(config)?,
+      Self::Break(break_stmt) => break_stmt.generate(config)?,
+      Self::Continue(continue_stmt) => continue_stmt.generate(config)?,
       Self::Return(exp) => {
         let value = exp.generate(config)?;
         let ret_val = config.ret_val().unwrap();
@@ -224,6 +227,56 @@ impl<'ast> ProgramGen<'ast> for If {
 
     config.set_bb(end_if);
 
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for While {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let bb_entry = config.new_bb("%entry".into());
+    let bb_body = config.new_bb("%body".into());
+    let bb_end = config.new_bb("%end".into());
+    let jump = config.new_value_builder().jump(bb_entry);
+    config.insert_instr(jump);
+
+    config.set_bb(bb_entry);
+    let cond = self.cond.generate(config)?;
+    let branch = config.new_value_builder().branch(cond, bb_body, bb_end);
+    config.insert_instr(branch);
+
+    config.while_in(bb_entry, bb_end);
+    config.set_bb(bb_body);
+    self.stmt.generate(config)?;
+    let jump = config.new_value_builder().jump(bb_entry);
+    config.insert_instr(jump);
+    config.while_out();
+
+    config.set_bb(bb_end);
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for Break {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let dest = config.break_bb();
+    let jump = config.new_value_builder().jump(dest);
+    config.insert_instr(jump);
+    let skipped = config.new_bb("%skipped".into());
+    config.set_bb(skipped);
+    Ok(())
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for Continue {
+  type Out = ();
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let dest = config.continue_bb();
+    let jump = config.new_value_builder().jump(dest);
+    config.insert_instr(jump);
+    let skipped = config.new_bb("%skipped".into());
+    config.set_bb(skipped);
     Ok(())
   }
 }
