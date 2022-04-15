@@ -10,12 +10,11 @@ match {
   _
 }
 
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
+pub CompUnit: CompUnit = <global_def: GlobalDef*> => CompUnit { <> };
 
-FuncDef: FuncDef = {
-  <func_type: FuncType> <ident: Ident> "(" ")" <block: Block> => {
-    FuncDef { <> }
-  }
+GlobalDef: GlobalDef = {
+  Decl => GlobalDef::Decl(<>),
+  FuncDef => GlobalDef::FuncDef(<>),
 }
 
 Decl: Decl = {
@@ -54,7 +53,33 @@ VarDef: VarDef = {
 
 InitVal: InitVal = <exp: Exp> => InitVal::Exp(exp);
 
-FuncType: FuncType = "int" => FuncType::Int;
+FuncDef: FuncDef = {
+  "int" <ident: Ident> "(" <params: FuncFParams?> ")" <block: Block> => {
+    FuncDef { 
+      func_type: FuncType::Int,
+      ident,
+      params: params.unwrap_or(Vec::new()),
+      block,
+    }
+  },
+  "void" <ident: Ident> "(" <params: FuncFParams?> ")" <block: Block> => {
+    FuncDef { 
+      func_type: FuncType::Void,
+      ident,
+      params: params.unwrap_or(Vec::new()),
+      block,
+    }
+  }
+}
+
+FuncFParams: Vec<FuncFParam> = {
+  <param0: FuncFParam> <mut params: ("," <FuncFParam>)*> => {
+    params.insert(0, param0);
+    params
+  }
+}
+
+FuncFParam: FuncFParam = "int" <ident: Ident> => FuncFParam { <> };
 
 Block: Block = "{" <item: BlockItem*> "}" => Block { <> };
 
@@ -109,11 +134,22 @@ Number: i32 = <num: IntConst> => <>;
 
 UnaryExp: Exp = {
   PrimaryExp => <>,
+  <ident: Ident> "(" <params: FuncRParams?> ")" => Exp::FuncCall(
+    ident,
+    params.unwrap_or(Vec::new()),
+  ),
   "+" <UnaryExp> => <>,
   <unaryop: UnaryOp> <unaryexp: UnaryExp> => Exp::UnaryExp(
     unaryop,
     Box::new(unaryexp),
   )
+}
+
+FuncRParams: Vec<Exp> = {
+  <exp0: Exp> <mut exps: ("," <Exp>)*> => {
+    exps.insert(0, exp0);
+    exps
+  }
 }
 
 MulExp: Exp = {

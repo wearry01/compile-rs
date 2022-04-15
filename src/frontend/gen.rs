@@ -19,7 +19,33 @@ pub trait ProgramGen<'ast> {
 impl<'ast> ProgramGen<'ast> for CompUnit {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    self.func_def.generate(config)?;
+    // generate decl for lib_functions
+    config.new_decl("getint", vec![], Type::get_i32())?;
+    config.new_decl("getch", vec![], Type::get_i32())?;
+    config.new_decl(
+      "getarray", 
+      vec![Type::get_pointer(Type::get_i32())], 
+      Type::get_i32()
+    )?;
+    config.new_decl("putint", vec![Type::get_i32()], Type::get_unit())?;
+    config.new_decl("putch", vec![Type::get_i32()], Type::get_unit())?;
+    config.new_decl(
+      "putarray", 
+      vec![
+        Type::get_i32(),
+        Type::get_pointer(Type::get_i32())
+      ], 
+      Type::get_unit()
+    )?;
+    config.new_decl("starttime", vec![], Type::get_unit())?;
+    config.new_decl("stoptime", vec![], Type::get_unit())?;
+
+    for func in &self.global_def {
+      match func {
+        GlobalDef::Decl(decl) => decl.generate(config)?,
+        GlobalDef::FuncDef(funcdef) => funcdef.generate(config)?,
+      }
+    }
     Ok(())
   }
 }
@@ -27,13 +53,28 @@ impl<'ast> ProgramGen<'ast> for CompUnit {
 impl<'ast> ProgramGen<'ast> for FuncDef {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    // entering current function
     let func_ty = self.func_type.generate(config)?;
+    let params_ty = self.params.iter().map(|p|
+      p.generate(config)
+    ).collect::<Result<Vec<_>>>()?;
+
     config.enter_func(
-      format!("@{}", self.ident),
-      vec![],
+      &self.ident,
+      params_ty,
       func_ty,
-    );
+    )?;
+
+    // generate symbol for function args
+    let p_params = config.func_mut().params().to_owned();
+    for (p, v) in self.params.iter().zip(p_params) {
+      let ty = config.dfg().value(v).ty().clone();
+      let alloc = config.new_value_builder().alloc(ty);
+      config.insert_instr(alloc);
+      config.dfg_mut().set_value_name(alloc, Some(format!("%param_{}", &p.ident)));
+      let store = config.new_value_builder().store(v, alloc);
+      config.insert_instr(store);
+      config.new_value(&p.ident, Value::Value(alloc))?;
+    }
 
     self.block.generate(config)?;
 
@@ -47,7 +88,15 @@ impl<'ast> ProgramGen<'ast> for FuncType {
   fn generate(&'ast self, _config: &mut Config<'ast>) -> Result<Self::Out> {
     match self {
       Self::Int => Ok(Type::get_i32()),
+      Self::Void => Ok(Type::get_unit()),
     }
+  }
+}
+
+impl<'ast> ProgramGen<'ast> for FuncFParam {
+  type Out = Type;
+  fn generate(&'ast self, _config: &mut Config<'ast>) -> Result<Self::Out> {
+    Ok(Type::get_i32())
   }
 }
 
@@ -122,16 +171,27 @@ impl<'ast> ProgramGen<'ast> for VarDecl {
 impl<'ast> ProgramGen<'ast> for VarDef {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let alloc = config.new_value_builder().alloc(Type::get_i32());
-    config.insert_instr(alloc);
-
-    // if initialized, create store instr
-    if let Some(init) = &self.initial {
-      let init = init.generate(config)?;
-      let store = config.new_value_builder().store(init, alloc);
-      config.insert_instr(store);
+    let alloc;
+    if config.is_global() {
+      if let Some(init) = &self.initial {
+        let init = init.generate(config)?;
+        alloc = config.global_new_value_builder().global_alloc(init);
+      } else {
+        let init = config.global_new_value_builder().zero_init(Type::get_i32());
+        alloc = config.global_new_value_builder().global_alloc(init);
+      }
+      config.new_value(&self.ident, Value::Value(alloc))
+    } else {
+      alloc = config.new_value_builder().alloc(Type::get_i32());
+      config.insert_instr(alloc);
+      // if initialized, create store instr
+      if let Some(init) = &self.initial {
+        let init = init.generate(config)?;
+        let store = config.new_value_builder().store(init, alloc);
+        config.insert_instr(store);
+      }
+      config.new_value(&self.ident, Value::Value(alloc))
     }
-    config.new_value(&self.ident, Value::Value(alloc))
   }
 }
 
@@ -286,7 +346,11 @@ impl<'ast> ProgramGen<'ast> for Exp {
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
     // return constant immediately
     if let Some(v) = self.eval(config) {
-      return Ok(config.new_value_builder().integer(v));
+      return if config.is_global() {
+        Ok(config.global_new_value_builder().integer(v))
+      } else {
+        Ok(config.new_value_builder().integer(v))
+      };
     }
 
     match self {
@@ -312,7 +376,6 @@ impl<'ast> ProgramGen<'ast> for Exp {
         config.insert_instr(instr);
         Ok(instr)
       },
-      // FIXME: short circuit logic operator
       Self::BinaryExp(lhs, op, rhs) => {
         match op {
           BinaryOp::And => {
@@ -378,6 +441,15 @@ impl<'ast> ProgramGen<'ast> for Exp {
             Ok(binary)
           }
         }
+      },
+      Self::FuncCall(ident, params) => {
+        let func = config.get_func(ident)?;
+        let args = params.iter().map(|p| 
+          p.generate(config)
+        ).collect::<Result<Vec<_>>>()?;
+        let call = config.new_value_builder().call(func, args);
+        config.insert_instr(call);
+        Ok(call)
       }
     }
   }
@@ -394,11 +466,7 @@ impl<'ast> ProgramGen<'ast> for ConstExp {
 impl<'ast> ProgramGen<'ast> for LVal {
   type Out = Value;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    if let Some(v) = config.get_value(&self.ident) {
-      Ok(v)
-    } else {
-      Err(FrontendError::UndeclaredVar(format!("{}", &self.ident)))
-    }
+    config.get_value(&self.ident)
   }
 }
 

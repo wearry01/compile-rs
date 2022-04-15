@@ -1,5 +1,10 @@
 pub struct CompUnit {
-  pub func_def: FuncDef,
+  pub global_def: Vec<GlobalDef>,
+}
+
+pub enum GlobalDef {
+  Decl(Decl),
+  FuncDef(FuncDef),
 }
 
 pub enum Decl {
@@ -36,11 +41,17 @@ pub enum InitVal {
 pub struct FuncDef {
   pub func_type: FuncType,
   pub ident: String,
+  pub params: Vec<FuncFParam>,
   pub block: Block,
 }
 
 pub enum FuncType {
   Int,
+  Void,
+}
+
+pub struct FuncFParam {
+  pub ident: String,
 }
 
 pub struct Block {
@@ -91,6 +102,7 @@ pub enum Exp {
   Number(i32),
   LVal(LVal),
   UnaryExp(UnaryOp, Box<Exp>),
+  FuncCall(String, Vec<Exp>),
   BinaryExp(Box<Exp>, BinaryOp, Box<Exp>),
 }
 

@@ -1,7 +1,5 @@
 /*
 TODO
-
-- Fix multi return bug, implement basic blocks
 - seperate values of
   - int type
   - ptr type 
@@ -13,7 +11,7 @@ use super::FrontendError;
 
 use std::collections::HashMap;
 use koopa::ir::builder_traits::*;
-use koopa::ir::builder::{LocalBuilder};
+use koopa::ir::builder::{LocalBuilder, GlobalBuilder};
 use koopa::ir::{
   dfg::DataFlowGraph,
   layout::{Layout, InstList, BasicBlockList},
@@ -43,8 +41,9 @@ pub struct Function {
 
 pub struct Config<'p> {
   program: &'p mut Program,
-  pub function: Option<Function>, // None for global config
-  pub vardef: Vec<HashMap<&'p str, Value>>, // symbol table for scope
+  pub function: Option<Function>, // current function info, None for global config
+  pub vardef: Vec<HashMap<&'p str, Value>>, // symbol table for var defs
+  pub funcdef: HashMap<&'p str, IrFunction>, // symbol table for function defs
   pub while_block: Vec<(BasicBlock, BasicBlock)>, // basic block chains for (while_entry, while_end)
 }
 
@@ -55,29 +54,27 @@ impl<'p> Config<'p> {
       program: program,
       function: None,
       vardef: vec![HashMap::new()],
+      funcdef: HashMap::new(),
       while_block: vec![],
     }
   }
 
-  /*
-  fn is_global(&self) -> bool {
+  pub fn is_global(&self) -> bool {
     self.function.is_none()
   }
-  */
 
-  fn dfg_mut(&mut self) -> &mut DataFlowGraph {
+  pub fn func_mut(&mut self) -> &mut FunctionData {
     let func = self.function.unwrap();
-    self.program.func_mut(func.ident).dfg_mut()
+    self.program.func_mut(func.ident)
   }
 
-  fn layout_mut(&mut self) -> &mut Layout {
-    let func = self.function.unwrap();
-    self.program.func_mut(func.ident).layout_mut()
-  }
+  pub fn dfg(&mut self) -> &DataFlowGraph { self.func_mut().dfg() }
 
-  fn bbs_mut(&mut self) -> &mut BasicBlockList {
-    self.layout_mut().bbs_mut()
-  }
+  pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func_mut().dfg_mut() }
+
+  fn layout_mut(&mut self) -> &mut Layout { self.func_mut().layout_mut() }
+
+  fn bbs_mut(&mut self) -> &mut BasicBlockList { self.layout_mut().bbs_mut() }
 
   fn insts_mut(&mut self) -> &mut InstList {
     let func = self.function.unwrap();
@@ -89,6 +86,11 @@ impl<'p> Config<'p> {
     self.dfg_mut().new_value()
   }
 
+  pub fn global_new_value_builder<'c>(&'c mut self) -> GlobalBuilder<'c> {
+    self.program.new_value()
+  }
+
+  // Methods for function
   pub fn end(&self) -> BasicBlock {
     self.function.unwrap().end
   }
@@ -97,18 +99,19 @@ impl<'p> Config<'p> {
     self.function.unwrap().ret_val
   }
 
-  // function begin
+  // enter a new function
   pub fn enter_func(
     &mut self,
-    name: String,
+    name: &'p str,
     params: Vec<Type>,
     ret_ty: Type,
-  ) {
-    let mut func_data = FunctionData::new(name, params, ret_ty.clone());
+  ) -> Result<()> {
+    let mut func_data = FunctionData::new(format!("@{}", name), params, ret_ty.clone());
     let entry = func_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
     let end = func_data.dfg_mut().new_bb().basic_block(Some("%end".into()));
     func_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
     func_data.layout_mut().bbs_mut().push_key_back(end).unwrap();
+
     let ret_val = {
       if ret_ty == Type::get_i32() {
         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
@@ -119,8 +122,14 @@ impl<'p> Config<'p> {
         None
       }
     };
+
     let ident = self.program.new_func(func_data);
     self.function = Some(Function { ident, current: entry, end, ret_val });
+    self.new_func(name, ident)?;
+
+    // enter in a new scope
+    self.scope_in();
+    Ok(())
   }
 
   // return before leave
@@ -129,13 +138,21 @@ impl<'p> Config<'p> {
     let func = self.function.unwrap();
     let jump = self.new_value_builder().jump(func.end);
     self.insert_instr(jump);
+    self.set_bb(func.end);
 
     // generate ret instr
-    let load = self.new_value_builder().load(func.ret_val.unwrap());
-    self.set_bb(func.end);
-    self.insert_instr(load);
-    let ret = self.new_value_builder().ret(Some(load));
-    self.insert_instr(ret);
+    if let Some(ret_v) = func.ret_val { // Int Type
+      let load = self.new_value_builder().load(ret_v);
+      self.insert_instr(load);
+      let ret = self.new_value_builder().ret(Some(load));
+      self.insert_instr(ret);
+    } else { // Void Type
+      let ret = self.new_value_builder().ret(None); 
+      self.insert_instr(ret);
+    }
+
+    // leave out current scope
+    self.scope_out();
   }
 
   // enter in a new scope
@@ -150,8 +167,9 @@ impl<'p> Config<'p> {
 
   // insert new value definition into symbol table
   pub fn new_value(&mut self, id: &'p str, value: Value) -> Result<()> {
+    let is_global = self.is_global();
     let symbol_table = self.vardef.last_mut().unwrap();
-    if symbol_table.contains_key(id) {
+    if symbol_table.contains_key(id) || (is_global && self.funcdef.contains_key(id)) {
       Err(FrontendError::MultiDef(id.into()))
     } else {
       symbol_table.insert(id, value);
@@ -160,17 +178,39 @@ impl<'p> Config<'p> {
   }
 
   // retrieve an value by ident 
-  pub fn get_value(&self, id: &str) -> Option<Value> {
+  pub fn get_value(&self, id: &str) -> Result<Value> {
     let mut index = (self.vardef.len() - 1) as i32;
     while index >= 0 {
       if let Some(v) = self.vardef[index as usize].get(id) {
-        return Some(v.clone());
+        return Ok(v.clone());
       }
       index -= 1;
     }
-    None
+    Err(FrontendError::UndeclaredVar(id.into()))
   }
 
+  // insert new function definition into symbol table
+  pub fn new_func(&mut self, id: &'p str, func: IrFunction) -> Result<()> {
+    if self.funcdef.contains_key(id) || self.vardef.first().unwrap().contains_key(id) {
+      Err(FrontendError::MultiDef(id.into()))
+    } else {
+      self.funcdef.insert(id, func);
+      Ok(())
+    }
+  }
+
+  // create new declaration
+  pub fn new_decl(&mut self, id: &'p str, params: Vec<Type>, ret_ty: Type) -> Result<()> {
+    let func = self.program.new_func(FunctionData::new(format!("@{}", id), params, ret_ty));
+    self.new_func(id, func)
+  }
+  
+  // retrieve a function by ident
+  pub fn get_func(&mut self, id: &str) -> Result<IrFunction> {
+    self.funcdef.get(id).copied().ok_or(FrontendError::UndeclaredVar(id.into()))
+  }
+
+  // Methods for while loop blocks
   pub fn while_in(&mut self, bb_entry: BasicBlock, bb_end: BasicBlock) {
     self.while_block.push((bb_entry, bb_end));
   }
