@@ -177,6 +177,9 @@ impl<'p> Config<'p> {
 
     // leave out current scope
     self.scope_out();
+
+    // set current function as none
+    self.function = None;
   }
 }
 

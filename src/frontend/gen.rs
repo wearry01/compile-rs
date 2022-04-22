@@ -538,6 +538,7 @@ impl<'ast> ProgramGen<'ast> for LVal {
     };
 
     let mut arr_args = false;
+    //print!("{}, {}\n", self.ident, value.is_global());
     let mut dims = match config.value_ty(value).kind() {
       TypeKind::Pointer(base0) => {
         let mut ty = base0;

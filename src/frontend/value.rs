@@ -56,7 +56,6 @@ pub enum Initializer {
 }
 
 impl Initializer {
-
   // [d1][d2] -> ((d2, d2), (d1, d1d2))
   fn expand(ty: &Type) -> Vec<(usize, usize)> {
     match ty.kind() {
@@ -139,7 +138,6 @@ impl Initializer {
 
   pub fn fit(self, ty: &Type) -> Result<Self> {
     let lens = Self::expand(ty);
-    println!("lens: {:?}", lens);
     if lens.is_empty() {
       match self {
         Self::Value(v) => Ok(Self::Value(v)),
