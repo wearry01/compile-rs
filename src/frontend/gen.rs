@@ -425,12 +425,12 @@ impl<'ast> ProgramGen<'ast> for Exp {
       Self::UnaryExp(uop, exp) => {
         let value = exp.generate(config)?.as_int(config)?;
         let zero = config.new_value_builder().integer(0);
-        let instr = match uop {
+        let binary = match uop {
           UnaryOp::Neg => config.new_value_builder().binary(IrBinaryOp::Sub, zero, value),
           UnaryOp::Not => config.new_value_builder().binary(IrBinaryOp::Eq, zero, value),
         };
-        config.insert_instr(instr);
-        Ok(Value::Int(instr))
+        config.insert_instr(binary);
+        Ok(Value::Int(binary))
       },
       Self::BinaryExp(lhs, op, rhs) => {
         match op {
@@ -450,6 +450,9 @@ impl<'ast> ProgramGen<'ast> for Exp {
 
             config.set_bb(reval);
             let rval = rhs.generate(config)?.as_int(config)?;
+            let zero = config.new_value_builder().integer(0);
+            let rval = config.new_value_builder().binary(IrBinaryOp::NotEq, zero, rval);
+            config.insert_instr(rval);
             let store = config.new_value_builder().store(rval, result);
             config.insert_instr(store);
 
@@ -477,6 +480,9 @@ impl<'ast> ProgramGen<'ast> for Exp {
 
             config.set_bb(reval);
             let rval = rhs.generate(config)?.as_int(config)?;
+            let zero = config.new_value_builder().integer(0);
+            let rval = config.new_value_builder().binary(IrBinaryOp::NotEq, zero, rval);
+            config.insert_instr(rval);
             let store = config.new_value_builder().store(rval, result);
             config.insert_instr(store);
 
