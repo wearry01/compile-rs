@@ -18,11 +18,13 @@ pub struct ConstDecl {
 
 pub struct ConstDef {
   pub ident: String,
+  pub dims: Vec<ConstExp>,
   pub initial: ConstInitVal,
 }
 
 pub enum ConstInitVal {
   Exp(ConstExp),
+  List(Vec<ConstInitVal>),
 }
 
 pub struct VarDecl {
@@ -31,11 +33,13 @@ pub struct VarDecl {
 
 pub struct VarDef {
   pub ident: String,
+  pub dims: Vec<ConstExp>,
   pub initial: Option<InitVal>,
 }
 
 pub enum InitVal {
   Exp(Exp),
+  List(Vec<InitVal>),
 }
 
 pub struct FuncDef {
@@ -52,6 +56,7 @@ pub enum FuncType {
 
 pub struct FuncFParam {
   pub ident: String,
+  pub dims: Option<Vec<ConstExp>>,
 }
 
 pub struct Block {
@@ -71,7 +76,7 @@ pub enum Stmt {
   While(Box<While>),
   Break(Break),
   Continue(Continue),
-  Return(Exp),
+  Return(Option<Exp>),
 }
 
 pub struct Assign {
@@ -112,6 +117,7 @@ pub struct ConstExp {
 
 pub struct LVal {
   pub ident: String,
+  pub indices: Vec<Exp>,
 }
 
 pub enum UnaryOp {

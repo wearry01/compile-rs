@@ -29,9 +29,18 @@ ConstDecl: ConstDecl = {
   }
 }
 
-ConstDef: ConstDef = <ident: Ident> "=" <initial: ConstInitVal> => ConstDef { <> };
+ConstDef: ConstDef = {
+  <ident: Ident> <dims: ("[" <ConstExp> "]")*> "=" <initial: ConstInitVal> => ConstDef { <> }
+}
 
-ConstInitVal: ConstInitVal = <exp: ConstExp> => ConstInitVal::Exp(exp);
+ConstInitVal: ConstInitVal = {
+  <exp: ConstExp> => ConstInitVal::Exp(exp),
+  "{" "}" => ConstInitVal::List(Vec::new()),
+  "{" <initial0: ConstInitVal> <mut initial: ("," <ConstInitVal>)*> "}" => {
+    initial.insert(0, initial0);
+    ConstInitVal::List(initial)
+  }
+}
 
 VarDecl: VarDecl = {
   "int" <def0: VarDef> <mut vardef: ("," <VarDef>)*> ";" => {
@@ -41,17 +50,19 @@ VarDecl: VarDecl = {
 }
 
 VarDef: VarDef = {
-  <ident: Ident> => VarDef {
-    <>,
-    initial: None,
-  },
-  <ident: Ident> "=" <initial: InitVal> => VarDef { 
-    ident: ident,
-    initial: Some(initial),
+  <ident: Ident> <dims: ("[" <ConstExp> "]")*> <initial: ("=" <InitVal>)?> => {
+    VarDef { <> }
   },
 }
 
-InitVal: InitVal = <exp: Exp> => InitVal::Exp(exp);
+InitVal: InitVal = {
+  <exp: Exp> => InitVal::Exp(exp),
+  "{" "}" => InitVal::List(Vec::new()),
+  "{" <initial0: InitVal> <mut initial: ("," <InitVal>)*> "}" => {
+    initial.insert(0, initial0);
+    InitVal::List(initial)
+  }
+}
 
 FuncDef: FuncDef = {
   "int" <ident: Ident> "(" <params: FuncFParams?> ")" <block: Block> => {
@@ -79,7 +90,9 @@ FuncFParams: Vec<FuncFParam> = {
   }
 }
 
-FuncFParam: FuncFParam = "int" <ident: Ident> => FuncFParam { <> };
+FuncFParam: FuncFParam = {
+  "int" <ident: Ident> <dims: ("[" "]" <("[" <ConstExp> "]")*> )?> => FuncFParam { <> },
+}
 
 Block: Block = "{" <item: BlockItem*> "}" => Block { <> };
 
@@ -105,7 +118,7 @@ MStmt: Stmt = {
   },
   "break" ";" => Stmt::Break(Break {}),
   "continue" ";" => Stmt::Continue(Continue {}),
-  "return" <exp: Exp> ";" => Stmt::Return(exp),
+  "return" <exp: Exp?> ";" => Stmt::Return(exp),
 }
 
 OStmt: Stmt = {
@@ -122,7 +135,7 @@ OStmt: Stmt = {
 
 Exp: Exp = LOrExp => <>; 
 
-LVal: LVal = <ident: Ident> => LVal { <> };
+LVal: LVal = <ident: Ident> <indices: ("[" <Exp> "]")*> => LVal { <> };
 
 PrimaryExp: Exp = {
   "(" <Exp> ")" => <>, 

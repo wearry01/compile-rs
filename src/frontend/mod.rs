@@ -7,13 +7,21 @@
     - program
     - function
     - symbol table
-      - local var table
+      - current (local) var table
       - global func table 
+  - value: 
+    - deal different value types
+      - not a value
+      - integer value (int a)
+      - ptr value (int *a)
+      - array ptr (int *a[])
+    - implementation of initializer
 */
 
 mod ast;
 mod gen;
 mod expr;
+mod value;
 mod config;
 
 use gen::ProgramGen;
@@ -42,18 +50,22 @@ pub fn generate_ir(input: String) -> Result<Program, FrontendError> {
 
 pub enum FrontendError {
   ParseFailure(String), // Error message reported by parser
-  UndeclaredVar(String),
+  UndeclaredId(String),
   EvalConstExpFail,
   MultiDef(String),
+  InvalidInitializer,
+  InvalidValueType,
 }
 
 impl fmt::Display for FrontendError {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
       Self::ParseFailure(err) => write!(f, "parse failure: {}", &err),
-      Self::UndeclaredVar(ident) => write!(f, "identification `{}` is undeclared", &ident),
+      Self::UndeclaredId(ident) => write!(f, "ident `{}` is undeclared", &ident),
       Self::EvalConstExpFail => write!(f, "failed in eval const expr"),
-      Self::MultiDef(ident) => write!(f, "identification `{}` defined multiple times", &ident),
+      Self::MultiDef(ident) => write!(f, "ident `{}` defined multiple times", &ident),
+      Self::InvalidInitializer => write!(f, "invalid initializer detected"),
+      Self::InvalidValueType => write!(f, "invalid value type detected"),
     }
   }
 }

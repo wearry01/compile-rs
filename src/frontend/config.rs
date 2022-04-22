@@ -1,11 +1,3 @@
-/*
-TODO
-- seperate values of
-  - int type
-  - ptr type 
-  in process of generation
-*/
-
 use super::gen::Result;
 use super::FrontendError;
 
@@ -16,6 +8,7 @@ use koopa::ir::{
   dfg::DataFlowGraph,
   layout::{Layout, InstList, BasicBlockList},
   Type,
+  TypeKind,
   Program,
   BasicBlock, 
   FunctionData,
@@ -23,6 +16,7 @@ use koopa::ir::{
   Function as IrFunction, 
 };
 
+// value stored in symbol table
 #[derive(Clone, Copy)]
 pub enum Value {
   Const(i32),
@@ -33,7 +27,6 @@ pub enum Value {
 #[derive(Clone, Copy)]
 pub struct Function {
   ident: IrFunction,
-  // entry: BasicBlock,
   current: BasicBlock,
   end: BasicBlock,
   ret_val: Option<IrValue>,
@@ -47,8 +40,9 @@ pub struct Config<'p> {
   pub while_block: Vec<(BasicBlock, BasicBlock)>, // basic block chains for (while_entry, while_end)
 }
 
-impl<'p> Config<'p> {
+// Global API
 
+impl<'p> Config<'p> {
   pub fn new(program: &'p mut Program) -> Self {
     Self {
       program: program,
@@ -61,6 +55,23 @@ impl<'p> Config<'p> {
 
   pub fn is_global(&self) -> bool {
     self.function.is_none()
+  }
+
+  pub fn is_void(&self, func: IrFunction) -> bool {
+    match self.program.func(func).ty().kind() {
+      TypeKind::Function(_, t) => {
+        return t.is_unit();
+      },
+      _ => unreachable!(),
+    }
+  }
+
+  pub fn value_ty(&mut self, value: IrValue) -> Type {
+    if value.is_global() {
+      self.program.borrow_value(value).ty().clone()
+    } else {
+      self.dfg().value(value).ty().clone()
+    }
   }
 
   pub fn func_mut(&mut self) -> &mut FunctionData {
@@ -90,7 +101,18 @@ impl<'p> Config<'p> {
     self.program.new_value()
   }
 
-  // Methods for function
+  pub fn set_name(&mut self, value: IrValue, ident: &str) {
+    if self.is_global() {
+      self.program.set_value_name(value, Some(format!("@{}", ident)));
+    } else {
+      self.dfg_mut().set_value_name(value, Some(format!("%{}", ident)));
+    }
+  }
+}
+
+// Function
+
+impl<'p> Config<'p> {
   pub fn end(&self) -> BasicBlock {
     self.function.unwrap().end
   }
@@ -107,8 +129,8 @@ impl<'p> Config<'p> {
     ret_ty: Type,
   ) -> Result<()> {
     let mut func_data = FunctionData::new(format!("@{}", name), params, ret_ty.clone());
-    let entry = func_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
-    let end = func_data.dfg_mut().new_bb().basic_block(Some("%end".into()));
+    let entry = func_data.dfg_mut().new_bb().basic_block(Some("%func_entry".into()));
+    let end = func_data.dfg_mut().new_bb().basic_block(Some("%func_end".into()));
     func_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
     func_data.layout_mut().bbs_mut().push_key_back(end).unwrap();
 
@@ -141,12 +163,14 @@ impl<'p> Config<'p> {
     self.set_bb(func.end);
 
     // generate ret instr
-    if let Some(ret_v) = func.ret_val { // Int Type
+    if let Some(ret_v) = func.ret_val { 
+      // Int Type
       let load = self.new_value_builder().load(ret_v);
       self.insert_instr(load);
       let ret = self.new_value_builder().ret(Some(load));
       self.insert_instr(ret);
-    } else { // Void Type
+    } else { 
+      // Void Type
       let ret = self.new_value_builder().ret(None); 
       self.insert_instr(ret);
     }
@@ -154,7 +178,11 @@ impl<'p> Config<'p> {
     // leave out current scope
     self.scope_out();
   }
+}
 
+// Scope, Symbol Table & Basic Blocks 
+
+impl<'p> Config<'p> {
   // enter in a new scope
   pub fn scope_in(&mut self) {
     self.vardef.push(HashMap::new());
@@ -186,7 +214,7 @@ impl<'p> Config<'p> {
       }
       index -= 1;
     }
-    Err(FrontendError::UndeclaredVar(id.into()))
+    Err(FrontendError::UndeclaredId(id.into()))
   }
 
   // insert new function definition into symbol table
@@ -207,7 +235,7 @@ impl<'p> Config<'p> {
   
   // retrieve a function by ident
   pub fn get_func(&mut self, id: &str) -> Result<IrFunction> {
-    self.funcdef.get(id).copied().ok_or(FrontendError::UndeclaredVar(id.into()))
+    self.funcdef.get(id).copied().ok_or(FrontendError::UndeclaredId(id.into()))
   }
 
   // Methods for while loop blocks

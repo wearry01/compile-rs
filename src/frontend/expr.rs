@@ -1,4 +1,4 @@
-use super::gen::{ProgramGen};
+// use super::gen::{ProgramGen};
 use super::config::{Value, Config};
 use crate::frontend::ast::*;
 
@@ -7,7 +7,7 @@ impl Exp {
     match self {
       Self::Number(v) => Some(*v),
       Self::LVal(lval) => {
-        let v = lval.generate(config).ok();
+        let v = config.get_value(&lval.ident).ok();
         if let Some(x) = &v {
           match x {
             Value::Const(c) => Some(*c),
@@ -36,7 +36,6 @@ impl Exp {
           BinaryOp::Ge => Some((lhs.eval(config)? >= rhs.eval(config)?).into()),
           BinaryOp::Eq => Some((lhs.eval(config)? == rhs.eval(config)?).into()),
           BinaryOp::Neq => Some((lhs.eval(config)? != rhs.eval(config)?).into()),
-          // short circuit
           BinaryOp::And => (lhs.eval(config)).and_then(|lv| 
             if lv == 0 { Some(0) } else { Some((rhs.eval(config)? != 0).into()) }
           ),

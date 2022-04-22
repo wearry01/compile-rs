@@ -30,11 +30,12 @@ fn compile() -> Result<()> {
     Mode::Koopa => KoopaGenerator::from_path(output)
       .map_err(Error::FileError)?
       .generate_on(&ir)
-      .map_err(Error::IOError),
+      .map_err(Error::IOError)?,
     Mode::Riscv => backend::generate_asm(&ir, &output)
-      .map_err(Error::FileError),
-    Mode::Perf => { unimplemented!() }
+      .map_err(Error::FileError)?,
+    Mode::Perf => { unimplemented!() },
   }
+  Ok(())
 }
 
 /* parse command line args */
@@ -71,10 +72,10 @@ enum Error {
 impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
-      Self::InvalidArgs => write!(f, "[invalid args]"),
-      Self::FrontendError(e) => write!(f, "[frontend error]: {}", e),
-      Self::FileError(e) => write!(f, "[file error]: {}", e),
-      Self::IOError(e) => write!(f, "[io error]: {}", e),
+      Self::InvalidArgs => write!(f, "[Invalid Args]"),
+      Self::FrontendError(e) => write!(f, "[Frontend Error]: {}", e),
+      Self::FileError(e) => write!(f, "[File Error]: {}", e),
+      Self::IOError(e) => write!(f, "[Io Error]: {}", e),
     }
   }
 }

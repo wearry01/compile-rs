@@ -1,11 +1,17 @@
 use super::ast::*;
-use super::config::Config;
-use super::config::Value;
-use super::{FrontendError};
+use super::config::{
+  Value as SymValue,
+  Config,
+};
+use super::value::Value;
+use super::value::Initializer;
+use super::FrontendError;
+
 use koopa::ir::builder_traits::*;
 use koopa::ir::{
   Type,
-  Value as IrValue,
+  TypeKind,
+  // Value as IrValue,
   BinaryOp as IrBinaryOp,
 };
 
@@ -70,10 +76,10 @@ impl<'ast> ProgramGen<'ast> for FuncDef {
       let ty = config.dfg().value(v).ty().clone();
       let alloc = config.new_value_builder().alloc(ty);
       config.insert_instr(alloc);
-      config.dfg_mut().set_value_name(alloc, Some(format!("%param_{}", &p.ident)));
+      config.set_name(alloc, &p.ident);
       let store = config.new_value_builder().store(v, alloc);
       config.insert_instr(store);
-      config.new_value(&p.ident, Value::Value(alloc))?;
+      config.new_value(&p.ident, SymValue::Value(alloc))?;
     }
 
     self.block.generate(config)?;
@@ -95,8 +101,12 @@ impl<'ast> ProgramGen<'ast> for FuncType {
 
 impl<'ast> ProgramGen<'ast> for FuncFParam {
   type Out = Type;
-  fn generate(&'ast self, _config: &mut Config<'ast>) -> Result<Self::Out> {
-    Ok(Type::get_i32())
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    if let Some(dims) = &self.dims { // array args
+      Ok(Type::get_pointer(dims.generate(config)?))
+    } else {
+      Ok(Type::get_i32())
+    }
   }
 }
 
@@ -144,17 +154,43 @@ impl<'ast> ProgramGen<'ast> for ConstDecl {
 impl<'ast> ProgramGen<'ast> for ConstDef {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let init = self.initial.generate(config)?;
-    config.new_value(&self.ident, Value::Const(init)) // create new imm number
+    let ty = self.dims.generate(config)?;
+    let init = self.initial.generate(config)?.fit(&ty)?;
+
+    if ty.is_i32() { // create new imm number
+      match init {
+        Initializer::Const(i) => {
+          config.new_value(&self.ident, SymValue::Const(i))?
+        },
+        _ => unreachable!(),
+      }
+    } else {
+      let value = if config.is_global() {
+        let init = init.as_const(config)?;
+        let value = config.global_new_value_builder().global_alloc(init);
+        value
+      } else {
+        let value = config.new_value_builder().alloc(ty);
+        config.insert_instr(value);
+        init.as_store(config, value);
+        value
+      };
+      config.set_name(value, &self.ident);
+      config.new_value(&self.ident, SymValue::Value(value))?;
+    }
+    Ok(())
   }
 }
 
 impl<'ast> ProgramGen<'ast> for ConstInitVal {
-  type Out = i32;
+  type Out = Initializer;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    match self {
-      Self::Exp(constexp) => constexp.generate(config),
-    }
+    Ok(match self {
+      Self::Exp(constexp) => Initializer::Const(constexp.generate(config)?),
+      Self::List(list) => Initializer::List(
+        list.iter().map(|i| i.generate(config)).collect::<Result<_>>()?
+      ),
+    })
   }
 }
 
@@ -171,36 +207,69 @@ impl<'ast> ProgramGen<'ast> for VarDecl {
 impl<'ast> ProgramGen<'ast> for VarDef {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let alloc;
-    if config.is_global() {
-      if let Some(init) = &self.initial {
-        let init = init.generate(config)?;
-        alloc = config.global_new_value_builder().global_alloc(init);
-      } else {
-        let init = config.global_new_value_builder().zero_init(Type::get_i32());
-        alloc = config.global_new_value_builder().global_alloc(init);
+    let ty = self.dims.generate(config)?;
+    let alloc = match &self.initial {
+      None => {
+        if config.is_global() {
+          let init = config.global_new_value_builder().zero_init(ty);
+          config.global_new_value_builder().global_alloc(init)
+        } else {
+          let alloc = config.new_value_builder().alloc(ty);
+          config.insert_instr(alloc);
+          alloc
+        }
+      },
+      Some(init) => {
+        let init = init.generate(config)?.fit(&ty)?;
+
+        if config.is_global() {
+          let init = init.as_const(config)?;
+          config.global_new_value_builder().global_alloc(init)
+        } else {
+          let alloc = config.new_value_builder().alloc(ty);
+          config.insert_instr(alloc);
+          init.as_store(config, alloc);
+          alloc
+        }
       }
-      config.new_value(&self.ident, Value::Value(alloc))
-    } else {
-      alloc = config.new_value_builder().alloc(Type::get_i32());
-      config.insert_instr(alloc);
-      // if initialized, create store instr
-      if let Some(init) = &self.initial {
-        let init = init.generate(config)?;
-        let store = config.new_value_builder().store(init, alloc);
-        config.insert_instr(store);
-      }
-      config.new_value(&self.ident, Value::Value(alloc))
-    }
+    };
+    config.set_name(alloc, &self.ident);
+    config.new_value(&self.ident, SymValue::Value(alloc))
   }
 }
 
 impl<'ast> ProgramGen<'ast> for InitVal {
-  type Out = IrValue;
+  type Out = Initializer;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    match self {
-      Self::Exp(exp) => exp.generate(config),
+    let init = match self {
+      Self::Exp(exp) => {
+        if config.is_global() {
+          Initializer::Const(exp.eval(config).ok_or(FrontendError::EvalConstExpFail)?)
+        } else {
+          Initializer::Value(exp.generate(config)?.as_int(config)?)
+        }
+      }
+      Self::List(list) => Initializer::List( 
+        list.iter().map(|v| v.generate(config)).collect::<Result<Vec<_>>>()?
+      ),
+    };
+    Ok(init)
+  }
+}
+
+// get array type
+impl<'ast> ProgramGen<'ast> for Vec<ConstExp> {
+  type Out = Type;
+  fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
+    let mut ty = Type::get_i32();
+    for exp in self.iter().rev() {
+      let len = exp.generate(config)?;
+      if len < 1 {
+        return Err(FrontendError::InvalidInitializer);
+      }
+      ty = Type::get_array(ty, len as usize);
     }
+    Ok(ty)
   }
 }
 
@@ -220,10 +289,12 @@ impl<'ast> ProgramGen<'ast> for Stmt {
       Self::Break(break_stmt) => break_stmt.generate(config)?,
       Self::Continue(continue_stmt) => continue_stmt.generate(config)?,
       Self::Return(exp) => {
-        let value = exp.generate(config)?;
-        let ret_val = config.ret_val().unwrap();
-        let store = config.new_value_builder().store(value, ret_val);
-        config.insert_instr(store);
+        if let Some(exp) = exp {
+          let value = exp.generate(config)?.as_int(config)?;
+          let ret_val = config.ret_val().unwrap();
+          let store = config.new_value_builder().store(value, ret_val);
+          config.insert_instr(store);
+        }
         let end = config.end();
         let jump = config.new_value_builder().jump(end);
         config.insert_instr(jump);
@@ -238,13 +309,10 @@ impl<'ast> ProgramGen<'ast> for Stmt {
 impl<'ast> ProgramGen<'ast> for Assign {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let lval = self.lval.generate(config)?;
-    let exp = self.exp.generate(config)?;
-
-    if let Value::Value(irvalue) = &lval {
-      let store = config.new_value_builder().store(exp, *irvalue);
-      config.insert_instr(store);
-    }
+    let lval = self.lval.generate(config)?.as_ptr()?;
+    let exp = self.exp.generate(config)?.as_val(config)?;
+    let store = config.new_value_builder().store(exp, lval);
+    config.insert_instr(store);
     Ok(())
   }
 }
@@ -262,12 +330,13 @@ impl<'ast> ProgramGen<'ast> for ExpStmt {
 impl<'ast> ProgramGen<'ast> for If {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let cond = self.cond.generate(config)?;
+    let cond = self.cond.generate(config)?.as_int(config)?;
     let then_block = config.new_bb("%then".into());
-    let end_if = config.new_bb("%endif".into());
 
+    let end_if;
     if let Some(else_stmt) = &self.else_stmt {
       let else_block = config.new_bb("%else".into());
+      end_if = config.new_bb("%endif".into());
       let branch = config.new_value_builder().branch(cond, then_block, else_block);
       config.insert_instr(branch);
 
@@ -276,6 +345,7 @@ impl<'ast> ProgramGen<'ast> for If {
       let jump = config.new_value_builder().jump(end_if);
       config.insert_instr(jump);
     } else {
+      end_if = config.new_bb("%endif".into());
       let branch = config.new_value_builder().branch(cond, then_block, end_if);
       config.insert_instr(branch);
     }
@@ -286,7 +356,6 @@ impl<'ast> ProgramGen<'ast> for If {
     config.insert_instr(jump);
 
     config.set_bb(end_if);
-
     Ok(())
   }
 }
@@ -294,14 +363,14 @@ impl<'ast> ProgramGen<'ast> for If {
 impl<'ast> ProgramGen<'ast> for While {
   type Out = ();
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    let bb_entry = config.new_bb("%entry".into());
-    let bb_body = config.new_bb("%body".into());
-    let bb_end = config.new_bb("%end".into());
+    let bb_entry = config.new_bb("%loop_entry".into());
+    let bb_body = config.new_bb("%loop_body".into());
+    let bb_end = config.new_bb("%loop_end".into());
     let jump = config.new_value_builder().jump(bb_entry);
     config.insert_instr(jump);
 
     config.set_bb(bb_entry);
-    let cond = self.cond.generate(config)?;
+    let cond = self.cond.generate(config)?.as_int(config)?;
     let branch = config.new_value_builder().branch(cond, bb_body, bb_end);
     config.insert_instr(branch);
 
@@ -342,39 +411,26 @@ impl<'ast> ProgramGen<'ast> for Continue {
 }
 
 impl<'ast> ProgramGen<'ast> for Exp {
-  type Out = IrValue;
+  type Out = Value;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    // return constant immediately
-    if let Some(v) = self.eval(config) {
-      return if config.is_global() {
-        Ok(config.global_new_value_builder().integer(v))
-      } else {
-        Ok(config.new_value_builder().integer(v))
-      };
-    }
-
     match self {
-      Self::Number(v) => Ok(config.new_value_builder().integer(*v)),
-      Self::LVal(lval) => {
-        let value = lval.generate(config)?;
-        match &value {
-          Value::Const(v) => Ok(config.new_value_builder().integer(*v)),
-          Value::Value(v) => {
-            let load = config.new_value_builder().load(*v);
-            config.insert_instr(load);
-            Ok(load)
-          },
+      Self::Number(v) => Ok(Value::Int(
+        if config.is_global() {
+          config.global_new_value_builder().integer(*v)
+        } else {
+          config.new_value_builder().integer(*v)
         }
-      },
+      )),
+      Self::LVal(lval) => lval.generate(config),
       Self::UnaryExp(uop, exp) => {
-        let value = exp.generate(config)?;
+        let value = exp.generate(config)?.as_int(config)?;
         let zero = config.new_value_builder().integer(0);
         let instr = match uop {
           UnaryOp::Neg => config.new_value_builder().binary(IrBinaryOp::Sub, zero, value),
           UnaryOp::Not => config.new_value_builder().binary(IrBinaryOp::Eq, zero, value),
         };
         config.insert_instr(instr);
-        Ok(instr)
+        Ok(Value::Int(instr))
       },
       Self::BinaryExp(lhs, op, rhs) => {
         match op {
@@ -386,14 +442,14 @@ impl<'ast> ProgramGen<'ast> for Exp {
               let store = config.new_value_builder().store(zero, result);
               config.insert_instr(store);
             }
-            let lval = lhs.generate(config)?;
+            let lval = lhs.generate(config)?.as_int(config)?;
             let reval = config.new_bb("%reval".into());
             let short_path = config.new_bb("%short_path".into());
             let branch = config.new_value_builder().branch(lval, reval, short_path);
             config.insert_instr(branch);
 
             config.set_bb(reval);
-            let rval = rhs.generate(config)?;
+            let rval = rhs.generate(config)?.as_int(config)?;
             let store = config.new_value_builder().store(rval, result);
             config.insert_instr(store);
 
@@ -403,7 +459,7 @@ impl<'ast> ProgramGen<'ast> for Exp {
             config.set_bb(short_path);
             let load = config.new_value_builder().load(result);
             config.insert_instr(load);
-            Ok(load)
+            Ok(Value::Int(load))
           },
           BinaryOp::Or => {
             let result = config.new_value_builder().alloc(Type::get_i32());
@@ -413,14 +469,14 @@ impl<'ast> ProgramGen<'ast> for Exp {
               let store = config.new_value_builder().store(one, result);
               config.insert_instr(store);
             }
-            let lval = lhs.generate(config)?;
+            let lval = lhs.generate(config)?.as_int(config)?;
             let reval = config.new_bb("%reval".into());
             let short_path = config.new_bb("%short_path".into());
             let branch = config.new_value_builder().branch(lval, short_path, reval);
             config.insert_instr(branch);
 
             config.set_bb(reval);
-            let rval = rhs.generate(config)?;
+            let rval = rhs.generate(config)?.as_int(config)?;
             let store = config.new_value_builder().store(rval, result);
             config.insert_instr(store);
 
@@ -430,26 +486,31 @@ impl<'ast> ProgramGen<'ast> for Exp {
             config.set_bb(short_path);
             let load = config.new_value_builder().load(result);
             config.insert_instr(load);
-            Ok(load)
+            Ok(Value::Int(load))
           },
           other => {
-            let lval = lhs.generate(config)?;
-            let rval = rhs.generate(config)?;
+            let lval = lhs.generate(config)?.as_int(config)?;
+            let rval = rhs.generate(config)?.as_int(config)?;
             let bop = other.generate(config)?;
             let binary = config.new_value_builder().binary(bop, lval, rval);
             config.insert_instr(binary);
-            Ok(binary)
+            Ok(Value::Int(binary))
           }
         }
       },
       Self::FuncCall(ident, params) => {
         let func = config.get_func(ident)?;
         let args = params.iter().map(|p| 
-          p.generate(config)
+          p.generate(config)?.as_val(config)
         ).collect::<Result<Vec<_>>>()?;
         let call = config.new_value_builder().call(func, args);
         config.insert_instr(call);
-        Ok(call)
+        
+        if config.is_void(func) {
+          Ok(Value::Nav)
+        } else {
+          Ok(Value::Int(call))
+        }
       }
     }
   }
@@ -462,11 +523,71 @@ impl<'ast> ProgramGen<'ast> for ConstExp {
   }
 }
 
-// FIXME: treat ptr value in ast
 impl<'ast> ProgramGen<'ast> for LVal {
   type Out = Value;
   fn generate(&'ast self, config: &mut Config<'ast>) -> Result<Self::Out> {
-    config.get_value(&self.ident)
+    let mut value = match config.get_value(&self.ident)? {
+      SymValue::Value(v) => v,
+      SymValue::Const(v) => {
+        return if self.indices.is_empty() {
+          Ok(Value::Int(config.new_value_builder().integer(v)))
+        } else {
+          Err(FrontendError::InvalidValueType)
+        };
+      }
+    };
+
+    let mut arr_args = false;
+    let mut dims = match config.value_ty(value).kind() {
+      TypeKind::Pointer(base0) => {
+        let mut ty = base0;
+        let mut dims = 0;
+
+        loop {
+          ty = match ty.kind() {
+            TypeKind::Array(base1, _) => base1,
+            TypeKind::Pointer(base1) => {
+              arr_args = true;
+              base1
+            },
+            _ => break dims,
+          };
+          dims += 1;
+        }
+      },
+      _ => 0,
+    };
+
+    if arr_args {
+      value = config.new_value_builder().load(value);
+      config.insert_instr(value);
+    }
+
+    for (i, idx) in self.indices.iter().enumerate() {
+      dims -= 1;
+      if dims < 0 {
+        return Err(FrontendError::InvalidValueType);
+      }
+
+      let idx = idx.generate(config)?.as_int(config)?;
+      value = if arr_args && i == 0 {
+        config.new_value_builder().get_ptr(value, idx)
+      } else {
+        config.new_value_builder().get_elem_ptr(value, idx)
+      };
+      config.insert_instr(value);
+    }
+
+    if dims == 0 {
+      Ok(Value::Ptr(value))
+    } else {
+      if !arr_args || !self.indices.is_empty() {
+        let zero = config.new_value_builder().integer(0);
+        value = config.new_value_builder().get_elem_ptr(value, zero);
+        config.insert_instr(value);
+      }
+      Ok(Value::APtr(value))
+    }
   }
 }
 
