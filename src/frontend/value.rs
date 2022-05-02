@@ -56,7 +56,7 @@ pub enum Initializer {
 }
 
 impl Initializer {
-  // [d1][d2] -> ((d2, d2), (d1, d1d2))
+  // [d1][d2] -> ((d2, d2), (d1, d1 * d2))
   fn expand(ty: &Type) -> Vec<(usize, usize)> {
     match ty.kind() {
       TypeKind::Int32 => Vec::new(),

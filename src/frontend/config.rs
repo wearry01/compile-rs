@@ -79,13 +79,13 @@ impl<'p> Config<'p> {
     self.program.func_mut(func.ident)
   }
 
-  pub fn dfg(&mut self) -> &DataFlowGraph { self.func_mut().dfg() }
-
-  pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func_mut().dfg_mut() }
-
   fn layout_mut(&mut self) -> &mut Layout { self.func_mut().layout_mut() }
 
   fn bbs_mut(&mut self) -> &mut BasicBlockList { self.layout_mut().bbs_mut() }
+
+  pub fn dfg(&mut self) -> &DataFlowGraph { self.func_mut().dfg() }
+
+  pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func_mut().dfg_mut() }
 
   fn insts_mut(&mut self) -> &mut InstList {
     let func = self.function.unwrap();

@@ -73,7 +73,7 @@ impl<'ast> ProgramGen<'ast> for FuncDef {
     // generate symbol for function args
     let p_params = config.func_mut().params().to_owned();
     for (p, v) in self.params.iter().zip(p_params) {
-      let ty = config.dfg().value(v).ty().clone();
+      let ty = config.value_ty(v);
       let alloc = config.new_value_builder().alloc(ty);
       config.insert_instr(alloc);
       config.set_name(alloc, &p.ident);
@@ -544,7 +544,6 @@ impl<'ast> ProgramGen<'ast> for LVal {
     };
 
     let mut arr_args = false;
-    //print!("{}, {}\n", self.ident, value.is_global());
     let mut dims = match config.value_ty(value).kind() {
       TypeKind::Pointer(base0) => {
         let mut ty = base0;
