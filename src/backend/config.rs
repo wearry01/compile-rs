@@ -79,8 +79,12 @@ impl<'p> Config<'p> {
     self.bbs_table.get(bb).unwrap()
   }
 
-  pub fn bbs_get_id(&mut self) -> usize {
-    let result = self.bbs_id;
+  pub fn new_temp_label(&mut self) -> String {
+    let result = format!(
+      ".L_{}_TEMP_{}", 
+      &self.program.func(self.cur_func.unwrap()).name()[1..], 
+      self.bbs_id
+    );
     self.bbs_id += 1;
     result
   }

@@ -189,7 +189,7 @@ impl AsmGen for ValueData {
       ValueKind::Branch(v) => {
         v.cond().generate(file, config)?.to(file, "t0", 0)?;
         let mut format = Format::new(file);
-        let temp = &format!(".L_TEMP_{}", config.bbs_get_id());
+        let temp = &config.new_temp_label();
         format.bnez("t0", temp)?;
         format.j(config.get_bb(&v.false_bb()))?;
         format.label(temp)?;
