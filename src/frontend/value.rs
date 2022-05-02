@@ -83,7 +83,7 @@ impl Initializer {
         Self::List(list) => {
           let mut align:usize = 0;
           let curlen = filled.len();
-          while align+1 < lens.len() && curlen % lens[align].0 == 0 {
+          while align+1 < lens.len() && curlen % lens[align].1 == 0 {
             align += 1; 
           }
 

@@ -79,6 +79,12 @@ impl<'p> Config<'p> {
     self.bbs_table.get(bb).unwrap()
   }
 
+  pub fn bbs_get_id(&mut self) -> usize {
+    let result = self.bbs_id;
+    self.bbs_id += 1;
+    result
+  }
+
   pub fn prologue(&mut self, file: &mut File, func: &FunctionData) -> Result<()> {
 
     // Local Allocs

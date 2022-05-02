@@ -48,13 +48,21 @@ impl<'io> Format<'io> {
   }
 
   pub fn sw(&mut self, src: &str, base: &str, offset: i32) -> Result<()> {
-    self.addi("t6", base, offset)?;
-    writeln!(self.file, "\tsw {src}, 0(t6)")
+    if offset >= -2048 && offset <= 2047 {
+      writeln!(self.file, "\tsw {src}, {offset}({base})")
+    } else {
+      self.addi("t6", base, offset)?;
+      writeln!(self.file, "\tsw {src}, 0(t6)")
+    }
   }
 
   pub fn lw(&mut self, dst: &str, base: &str, offset: i32) -> Result<()> {
-    self.addi("t6", base, offset)?;
-    writeln!(self.file, "\tlw {dst}, 0(t6)")
+    if offset >= -2048 && offset <= 2047 {
+      writeln!(self.file, "\tlw {dst}, {offset}({base})")
+    } else {
+      self.addi("t6", base, offset)?;
+      writeln!(self.file, "\tlw {dst}, 0(t6)")
+    }
   }
 
   pub fn bnez(&mut self, cond: &str, label: &str) -> Result<()> {
@@ -63,6 +71,10 @@ impl<'io> Format<'io> {
 
   pub fn j(&mut self, label: &str) -> Result<()> {
     writeln!(self.file, "\tj {label}")
+  }
+
+  pub fn label(&mut self, label: &str) -> Result<()> {
+    writeln!(self.file, "{label}:")
   }
   
   pub fn call(&mut self, func: &str) -> Result<()> {

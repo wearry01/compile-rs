@@ -189,8 +189,17 @@ impl AsmGen for ValueData {
       ValueKind::Branch(v) => {
         v.cond().generate(file, config)?.to(file, "t0", 0)?;
         let mut format = Format::new(file);
-        format.bnez("t0", config.get_bb(&v.true_bb()))?;
+        let temp = &format!(".L_TEMP_{}", config.bbs_get_id());
+        format.bnez("t0", temp)?;
         format.j(config.get_bb(&v.false_bb()))?;
+        format.label(temp)?;
+        format.j(config.get_bb(&v.true_bb()))?;
+        /*
+          br cond TEMP
+          j false
+        TEMP:
+          j true
+        */
       }
       ValueKind::Jump(v) => Format::new(file).j(config.get_bb(&v.target()))?,
       ValueKind::Call(v) => {
@@ -200,7 +209,9 @@ impl AsmGen for ValueData {
         }
         let callee = &config.program().func(v.callee()).name()[1..];
         Format::new(file).call(callee)?;
-        AsmValue::from(config.sp_offset(&self)).load(file, "a0")?;
+        if !self.used_by().is_empty() { // otherwise not in symbol table
+          AsmValue::from(config.sp_offset(&self)).load(file, "a0")?;
+        }
       }
       ValueKind::GlobalAlloc(v) => config.program().borrow_value(v.init()).generate(file, config)?,
       ValueKind::Return(_v) => {
