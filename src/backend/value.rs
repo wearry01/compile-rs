@@ -33,7 +33,7 @@ impl Value {
         if *i < 8 {
           format.mv(dst, &format!("a{}", *i))?;
         } else {
-          format.lw(dst, "sp", (offset + 4*(*i - 8)) as i32)?;
+          format.lw(dst, "sp", (offset + 4 * (*i - 8)) as i32)?;
         }
         Ok(())
       },

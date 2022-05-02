@@ -97,7 +97,7 @@ impl<'p> Config<'p> {
 
     // Local Value
     for value in func.dfg().values().values() {
-      if value.kind().is_local_inst() {
+      if value.kind().is_local_inst() && !value.used_by().is_empty() {
         let ptr = self.alloc_size.2 + self.alloc_size.1;
         match value.kind() {
           ValueKind::Alloc(_) => {
@@ -123,7 +123,7 @@ impl<'p> Config<'p> {
     for (&bb, bb_t) in func.dfg().bbs() {
       if let Some(bb_name) = bb_t.name() {
         self.bbs_table.insert(bb, format!(
-          ".L{}_{}_{}",
+          ".L_{}_{}_{}",
            &func.name()[1..], 
            &bb_name[1..], 
            self.bbs_id
@@ -131,20 +131,18 @@ impl<'p> Config<'p> {
         );
       } else {
         self.bbs_table.insert(bb, format!(
-          ".L{}_{}", 
+          ".L_{}_{}", 
           &func.name()[1..], 
           self.bbs_id
           )
         );
       }
-
       self.bbs_id += 1;
     }
 
     let mut format = Format::new(file);
     let offset = self.stk_frame_size() as i32;
     format.addi("sp", "sp", -offset)?;
-
     if self.alloc_size.0 > 0 {
       format.sw("ra", "sp", offset - 4)?;
     }
@@ -154,7 +152,6 @@ impl<'p> Config<'p> {
   pub fn epilogue(&self, file: &mut File) -> Result<()> {
     let mut format = Format::new(file);
     let offset = self.stk_frame_size() as i32;
-
     if self.alloc_size.0 > 0 {
       format.lw("ra", "sp", offset - 4)?;
     }
