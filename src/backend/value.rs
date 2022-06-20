@@ -11,7 +11,6 @@ pub enum Value {
 }
 
 impl Value {
-
   pub fn is_ptr(&self) -> bool {
     if let Self::Local((_, p)) = &self {
       *p

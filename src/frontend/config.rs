@@ -34,13 +34,13 @@ pub struct Function {
 
 pub struct Config<'p> {
   program: &'p mut Program,
-  pub function: Option<Function>, // current function info, None for global config
+  pub function: Option<Function>, // current function info, [None] for global config
   pub vardef: Vec<HashMap<&'p str, Value>>, // symbol table for var defs
   pub funcdef: HashMap<&'p str, IrFunction>, // symbol table for function defs
   pub while_block: Vec<(BasicBlock, BasicBlock)>, // basic block chains for (while_entry, while_end)
 }
 
-// Global API
+// Global Properties
 
 impl<'p> Config<'p> {
   pub fn new(program: &'p mut Program) -> Self {
@@ -110,7 +110,7 @@ impl<'p> Config<'p> {
   }
 }
 
-// Function
+// Function Operation
 
 impl<'p> Config<'p> {
   pub fn end(&self) -> BasicBlock {
@@ -183,7 +183,7 @@ impl<'p> Config<'p> {
   }
 }
 
-// Scope, Symbol Table & Basic Blocks 
+// Scope, Symbol Table & Basic Blocks Implementation
 
 impl<'p> Config<'p> {
   // enter in a new scope
@@ -241,7 +241,7 @@ impl<'p> Config<'p> {
     self.funcdef.get(id).copied().ok_or(FrontendError::UndeclaredId(id.into()))
   }
 
-  // Methods for while loop blocks
+  // methods for while loop blocks
   pub fn while_in(&mut self, bb_entry: BasicBlock, bb_end: BasicBlock) {
     self.while_block.push((bb_entry, bb_end));
   }

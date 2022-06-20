@@ -18,9 +18,9 @@ use super::format::Format;
 pub struct Config<'p> {
   program: &'p Program,
   cur_func: Option<Function>,
-  value_table: HashMap<Value, String>,
+  value_table: HashMap<Value, String>, // global values
   alloc_size: (usize, usize, usize), // ra + local + args
-  alloc_table: HashMap<*const ValueData, (usize, bool)>,
+  alloc_table: HashMap<*const ValueData, (usize, bool)>, // local values
   bbs_id: usize,
   bbs_table: HashMap<BasicBlock, String>
 }
@@ -60,7 +60,6 @@ impl<'p> Config<'p> {
   }
 
   // Deal Global Values
-
   pub fn get_value(&self, value: Value) -> &str {
     self.value_table.get(&value).unwrap()
   }
@@ -70,7 +69,6 @@ impl<'p> Config<'p> {
   }
 
   // Deal Local Values & Functions
-
   pub fn sp_offset(&self, value: &ValueData) -> Option<&(usize, bool)> {
     self.alloc_table.get(&(value as *const ValueData))
   }
@@ -90,11 +88,9 @@ impl<'p> Config<'p> {
   }
 
   pub fn prologue(&mut self, file: &mut File, func: &FunctionData) -> Result<()> {
-
     // Local Allocs
     self.alloc_size = (0, 0, 0);
     self.alloc_table = HashMap::new();
-
     // Ra & Args
     for value in func.dfg().values().values() {
       if let ValueKind::Call(v) = value.kind() {
@@ -104,7 +100,6 @@ impl<'p> Config<'p> {
         }
       }
     }
-
     // Local Value
     for value in func.dfg().values().values() {
       if value.kind().is_local_inst() && !value.used_by().is_empty() {
@@ -125,7 +120,6 @@ impl<'p> Config<'p> {
         }
       }
     }
-
     // BBS
     self.bbs_id = 0;
     self.bbs_table = HashMap::new();

@@ -9,13 +9,14 @@
     - symbol table
       - current (local) var table
       - global func table 
+    - while loop entries and exits
   - value: 
     - deal different value types
-      - not a value
+      - not a value (void)
       - integer value (int a)
       - ptr value (int *a)
       - array ptr (int *a[])
-    - implementation of initializer
+    - implementation of initializers
 */
 
 mod ast;

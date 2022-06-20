@@ -151,7 +151,6 @@ impl AsmGen for ValueData {
       ValueKind::Binary(v) => {
         v.lhs().generate(file, config)?.to(file, "t0", 0)?;
         v.rhs().generate(file, config)?.to(file, "t1", 0)?;
-
         let mut format = Format::new(file);
         match v.op() {
           BinaryOp::Add => format.bop("add", "t0", "t0", "t1")?,
@@ -222,7 +221,6 @@ impl AsmGen for ValueData {
       }
       _ => {},
     }
-
     Ok(())
   }
 }
